@@ -26,7 +26,7 @@ export function TreatmentForm({
     startTransition(async () => {
       const result = await createTreatment(fd)
       router.push(
-        `/receitas?paciente=${result.patientId}&tratamento=${result.id}`,
+        `/pacientes/${result.patientId}?lancar=receita&tratamento=${result.id}`,
       )
       router.refresh()
     })
@@ -120,7 +120,7 @@ export function TreatmentForm({
         </div>
       </div>
       <Button type="submit" disabled={pending}>
-        {pending ? "Salvando…" : "Criar e ir à receita"}
+        {pending ? "Salvando…" : "Criar e lançar receita"}
       </Button>
     </form>
   )

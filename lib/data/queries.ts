@@ -42,6 +42,13 @@ export async function fetchDashboardData(from: string, to: string) {
     }
   }
 
+  // Remove receitas órfãs de exclusões antigas (patient_id null)
+  await supabase
+    .from("revenues")
+    .delete()
+    .eq("user_id", user.id)
+    .is("patient_id", null)
+
   const [
     revenues,
     expenses,
@@ -57,6 +64,7 @@ export async function fetchDashboardData(from: string, to: string) {
       .from("revenues")
       .select("*")
       .eq("user_id", user.id)
+      .not("patient_id", "is", null)
       .gte("revenue_date", from)
       .lte("revenue_date", to)
       .order("revenue_date", { ascending: true }),
@@ -96,13 +104,23 @@ export async function fetchDashboardData(from: string, to: string) {
       .eq("is_active", true),
   ])
 
+  const patientIds = new Set((patients.data ?? []).map((p) => p.id))
+  const liveTreatments = (treatments.data ?? []).filter((t) =>
+    patientIds.has(t.patient_id),
+  )
+  const liveTreatmentIds = new Set(liveTreatments.map((t) => t.id))
+
   return {
-    revenues: revenues.data ?? [],
-    expenses: expenses.data ?? [],
-    sessions: sessions.data ?? [],
+    revenues: (revenues.data ?? []).filter((r) => patientIds.has(r.patient_id)),
+    expenses: (expenses.data ?? []).filter(
+      (e) => !e.patient_id || patientIds.has(e.patient_id),
+    ),
+    sessions: (sessions.data ?? []).filter((s) => patientIds.has(s.patient_id)),
     patients: patients.data ?? [],
-    treatments: treatments.data ?? [],
-    installments: installments.data ?? [],
+    treatments: liveTreatments,
+    installments: (installments.data ?? []).filter((i) =>
+      liveTreatmentIds.has(i.treatment_id),
+    ),
     devices: devices.data ?? [],
     settings: settings.data,
     bands: bands.data ?? [],

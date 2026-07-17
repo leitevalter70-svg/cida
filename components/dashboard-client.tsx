@@ -99,6 +99,20 @@ export function DashboardClient({ from, to, data }: Props) {
       value,
     }))
 
+    const byPatientMap = new Map<string, { name: string; value: number }>()
+    data.revenues.forEach((r) => {
+      const pid = r.patient_id || "sem"
+      const name =
+        data.patients.find((p) => p.id === r.patient_id)?.full_name ||
+        "Sem paciente"
+      const cur = byPatientMap.get(pid) || { name, value: 0 }
+      cur.value += Number(r.gross_amount)
+      byPatientMap.set(pid, cur)
+    })
+    const byPatient = Array.from(byPatientMap.values())
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8)
+
     const openInstallments = data.installments.reduce(
       (s, i) => s + Number(i.amount),
       0,
@@ -114,6 +128,7 @@ export function DashboardClient({ from, to, data }: Props) {
       expenses,
       daily,
       methods,
+      byPatient,
       splitPie: [
         { name: "Clínica", value: clinic },
         { name: "Profissional", value: professional },
@@ -341,6 +356,27 @@ export function DashboardClient({ from, to, data }: Props) {
                       dataKey="value"
                       fill="var(--chart-3)"
                       radius={[6, 6, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Faturamento por paciente">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={financial.byPatient} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={100}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <Tooltip formatter={(v) => formatBRL(Number(v))} />
+                    <Bar
+                      dataKey="value"
+                      fill="var(--chart-2)"
+                      radius={[0, 6, 6, 0]}
                     />
                   </BarChart>
                 </ResponsiveContainer>

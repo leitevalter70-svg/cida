@@ -4,11 +4,15 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { SetupNotice } from "@/components/setup-notice"
 import { PatientForm } from "@/components/forms/patient-form"
 import { SessionForm } from "@/components/forms/session-form"
+import { RevenueForm } from "@/components/forms/revenue-form"
+import { DeletePatientButton } from "@/components/forms/delete-patient-button"
 import { EvolutionChart } from "@/components/evolution-chart"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
-import { formatData } from "@/lib/format"
+import { formatBRL, formatData } from "@/lib/format"
+import { paymentMethodLabel } from "@/lib/finance/split"
+import type { PaymentMethod } from "@/lib/types"
 import {
   adherencePercent,
   chanceSummary,
@@ -22,10 +26,14 @@ import { notFound } from "next/navigation"
 
 export default async function PacienteDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ lancar?: string; tratamento?: string }>
 }) {
   const { id } = await params
+  const { lancar, tratamento: defaultTreatmentId = "" } = await searchParams
+  const highlightRevenue = lancar === "receita"
 
   if (!isSupabaseConfigured()) {
     return (
@@ -54,6 +62,7 @@ export default async function PacienteDetailPage({
     { data: bands },
     { data: settings },
     { data: reports },
+    { data: revenues },
   ] = await Promise.all([
     supabase
       .from("sessions")
@@ -62,7 +71,7 @@ export default async function PacienteDetailPage({
       .order("session_date", { ascending: true }),
     supabase
       .from("treatments")
-      .select("*")
+      .select("*, installments(id, treatment_id, sequence_number, amount, status)")
       .eq("patient_id", id)
       .order("created_at", { ascending: false }),
     supabase
@@ -79,7 +88,23 @@ export default async function PacienteDetailPage({
       .from("clinical_reports")
       .select("id, treatment_id")
       .eq("patient_id", id),
+    supabase
+      .from("revenues")
+      .select("*")
+      .eq("patient_id", id)
+      .order("revenue_date", { ascending: false }),
   ])
+
+  const installments = (treatments ?? []).flatMap(
+    (t) =>
+      ((t.installments as {
+        id: string
+        treatment_id: string
+        sequence_number: number
+        amount: number
+        status: string
+      }[]) ?? []).filter((i) => i.status !== "paga"),
+  )
 
   const activeTreatment = treatments?.find((t) => t.status === "ativo")
   const done = sessions?.filter((s) =>
@@ -115,6 +140,25 @@ export default async function PacienteDetailPage({
         escala: s.evolution_scale,
       })) ?? []
 
+  const revenueTotals = (revenues ?? []).reduce(
+    (acc, r) => {
+      acc.gross += Number(r.gross_amount)
+      acc.clinic += Number(r.clinic_net_amount)
+      acc.professional += Number(r.professional_net_amount)
+      acc.card += Number(r.card_fee_amount)
+      return acc
+    },
+    { gross: 0, clinic: 0, professional: 0, card: 0 },
+  )
+
+  const treatmentOptions = (treatments ?? []).map((t) => ({
+    id: t.id,
+    patient_id: t.patient_id,
+    protocol_name: t.protocol_name,
+    kind: t.kind as string,
+    total_amount: Number(t.total_amount),
+  }))
+
   return (
     <div className="flex flex-col gap-6">
       <SetupNotice />
@@ -136,6 +180,26 @@ export default async function PacienteDetailPage({
             )}
           </div>
         </div>
+        <DeletePatientButton
+          patientId={patient.id}
+          patientName={patient.full_name}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[
+          ["Faturamento", revenueTotals.gross],
+          ["Clínica", revenueTotals.clinic],
+          ["Você", revenueTotals.professional],
+          ["Cartão", revenueTotals.card],
+        ].map(([label, value]) => (
+          <Card key={label as string}>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">{label as string}</p>
+              <p className="text-lg font-bold">{formatBRL(value as number)}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -163,6 +227,82 @@ export default async function PacienteDetailPage({
           </CardHeader>
           <CardContent>
             <EvolutionChart data={chartData} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div
+        id="lancar-receita"
+        className={cn(
+          "grid grid-cols-1 gap-6 lg:grid-cols-2",
+          highlightRevenue && "rounded-xl ring-2 ring-primary/40 ring-offset-2",
+        )}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {highlightRevenue ? "Lançar receita deste paciente" : "Nova receita"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RevenueForm
+              key={`${id}-${defaultTreatmentId}`}
+              patientId={patient.id}
+              patientName={patient.full_name}
+              treatments={treatmentOptions}
+              installments={installments}
+              settings={settings}
+              defaultTreatmentId={defaultTreatmentId}
+              redirectTo={`/pacientes/${id}`}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Receitas deste paciente</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {(revenues ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma receita lançada ainda.
+              </p>
+            ) : (
+              (revenues ?? []).map((r) => (
+                <div
+                  key={r.id}
+                  className="rounded-lg border border-border px-3 py-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium">
+                        {r.description || "Receita"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatData(r.revenue_date)} ·{" "}
+                        {paymentMethodLabel(r.payment_method as PaymentMethod)}
+                      </p>
+                    </div>
+                    <p className="font-semibold">
+                      {formatBRL(Number(r.gross_amount))}
+                    </p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <Badge variant="outline">
+                      Clínica {formatBRL(Number(r.clinic_net_amount))}
+                    </Badge>
+                    <Badge variant="outline">
+                      Você {formatBRL(Number(r.professional_net_amount))}
+                    </Badge>
+                    {Number(r.card_fee_amount) > 0 && (
+                      <Badge variant="secondary">
+                        Cartão {formatBRL(Number(r.card_fee_amount))}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -196,6 +336,55 @@ export default async function PacienteDetailPage({
                   (s.session_devices as { device_catalog: { name: string } }[])
                     ?.map((d) => d.device_catalog?.name)
                     .filter(Boolean) ?? []
+                const treatmentName = treatments?.find(
+                  (t) => t.id === s.treatment_id,
+                )?.protocol_name
+                const accessLabel =
+                  {
+                    sonda_vaginal: "Sonda vaginal",
+                    sonda_anal: "Sonda anal",
+                    eletrodo_superficie: "Eletrodo de superfície",
+                    outro: "Outro",
+                    nao_aplicavel: "Não aplicável",
+                  }[s.access_route as string] ?? s.access_route
+                const rows: { label: string; value: string }[] = []
+                if (treatmentName) {
+                  rows.push({ label: "Tratamento", value: treatmentName })
+                }
+                if (s.daily_complaint) {
+                  rows.push({
+                    label: "Queixa / foco",
+                    value: complaintLabel(s.daily_complaint) || s.daily_complaint,
+                  })
+                }
+                if (s.procedures_done) {
+                  rows.push({
+                    label: "Condutas",
+                    value: s.procedures_done,
+                  })
+                }
+                if (s.access_route && s.access_route !== "nao_aplicavel") {
+                  rows.push({ label: "Via / acessório", value: accessLabel })
+                }
+                if (s.device_notes) {
+                  rows.push({
+                    label: "Obs. aparelho",
+                    value: s.device_notes,
+                  })
+                }
+                if (s.patient_response) {
+                  rows.push({
+                    label: "Resposta / observação",
+                    value: s.patient_response,
+                  })
+                }
+                if (s.next_step) {
+                  rows.push({
+                    label: "Próximo passo",
+                    value: s.next_step,
+                  })
+                }
+
                 return (
                   <div
                     key={s.id}
@@ -209,18 +398,36 @@ export default async function PacienteDetailPage({
                         <Badge>Escala {s.evolution_scale}</Badge>
                       )}
                     </div>
-                    {s.procedures_done && (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {s.procedures_done}
-                      </p>
-                    )}
-                    {deviceNames.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {deviceNames.map((n) => (
-                          <Badge key={n} variant="outline">
-                            {n}
-                          </Badge>
+                    {rows.length > 0 ? (
+                      <dl className="mt-2 space-y-1.5 text-sm">
+                        {rows.map((row) => (
+                          <div key={row.label}>
+                            <dt className="text-xs font-medium text-muted-foreground">
+                              {row.label}
+                            </dt>
+                            <dd className="whitespace-pre-wrap text-foreground">
+                              {row.value}
+                            </dd>
+                          </div>
                         ))}
+                      </dl>
+                    ) : deviceNames.length === 0 ? (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Sem detalhes clínicos registrados.
+                      </p>
+                    ) : null}
+                    {deviceNames.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Aparelhos
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {deviceNames.map((n) => (
+                            <Badge key={n} variant="outline">
+                              {n}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -260,16 +467,26 @@ export default async function PacienteDetailPage({
                       {t.kind} · {t.planned_sessions} sessões · {t.status}
                     </p>
                   </div>
-                  {report && (
+                  <div className="flex flex-wrap gap-2">
                     <Link
-                      href={`/relatorios/clinico/${t.id}`}
+                      href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
                       className={cn(
                         buttonVariants({ size: "sm", variant: "outline" }),
                       )}
                     >
-                      Relatório clínico
+                      Lançar receita
                     </Link>
-                  )}
+                    {report && (
+                      <Link
+                        href={`/relatorios/clinico/${t.id}`}
+                        className={cn(
+                          buttonVariants({ size: "sm", variant: "outline" }),
+                        )}
+                      >
+                        Relatório clínico
+                      </Link>
+                    )}
+                  </div>
                 </div>
               )
             })

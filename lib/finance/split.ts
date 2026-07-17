@@ -23,6 +23,10 @@ export type SplitResult = {
 
 const CARD_METHODS: PaymentMethod[] = ["debito", "credito"]
 
+export function isCardPayment(method: PaymentMethod) {
+  return CARD_METHODS.includes(method)
+}
+
 function round2(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100
 }
@@ -38,7 +42,7 @@ export function calculateSplit(input: SplitInput): SplitResult {
   const cardPct =
     Math.min(100, Math.max(0, Number(input.cardFeePercent) || 0)) / 100
 
-  const appliesCardFee = CARD_METHODS.includes(input.paymentMethod)
+  const appliesCardFee = isCardPayment(input.paymentMethod)
   const cardFeeAmount = appliesCardFee ? round2(gross * cardPct) : 0
   const netAfterCard = round2(gross - cardFeeAmount)
 

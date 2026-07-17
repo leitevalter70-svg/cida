@@ -200,7 +200,7 @@ create table public.session_devices (
 create table public.revenues (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
-  patient_id uuid references public.patients (id) on delete set null,
+  patient_id uuid references public.patients (id) on delete cascade,
   treatment_id uuid references public.treatments (id) on delete set null,
   installment_id uuid references public.installments (id) on delete set null,
   session_id uuid references public.sessions (id) on delete set null,
@@ -234,7 +234,7 @@ create table public.expenses (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
   category_id uuid references public.expense_categories (id) on delete set null,
-  patient_id uuid references public.patients (id) on delete set null,
+  patient_id uuid references public.patients (id) on delete cascade,
   expense_date date not null default current_date,
   description text not null,
   amount numeric(12, 2) not null check (amount >= 0),

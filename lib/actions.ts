@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
-import { calculateSplit } from "@/lib/finance/split"
+import { calculateSplit, isCardPayment } from "@/lib/finance/split"
 import type {
   ClinicBaseMode,
   PaymentMethod,
@@ -71,6 +71,62 @@ export async function updatePatient(id: string, formData: FormData) {
   if (error) throw new Error(error.message)
   revalidatePath("/pacientes")
   revalidatePath(`/pacientes/${id}`)
+}
+
+export async function deletePatient(id: string) {
+  const { supabase, userId } = await getUserId()
+
+  // Busca tratamentos para limpar receitas vinculadas mesmo se patient_id falhar
+  const { data: treatments } = await supabase
+    .from("treatments")
+    .select("id")
+    .eq("patient_id", id)
+    .eq("user_id", userId)
+  const treatmentIds = (treatments ?? []).map((t) => t.id)
+
+  const { error: revByPatientError } = await supabase
+    .from("revenues")
+    .delete()
+    .eq("patient_id", id)
+    .eq("user_id", userId)
+  if (revByPatientError) throw new Error(revByPatientError.message)
+
+  if (treatmentIds.length > 0) {
+    const { error: revByTreatmentError } = await supabase
+      .from("revenues")
+      .delete()
+      .in("treatment_id", treatmentIds)
+      .eq("user_id", userId)
+    if (revByTreatmentError) throw new Error(revByTreatmentError.message)
+  }
+
+  const { error: expError } = await supabase
+    .from("expenses")
+    .delete()
+    .eq("patient_id", id)
+    .eq("user_id", userId)
+  if (expError) throw new Error(expError.message)
+
+  // Limpa receitas órfãs de exclusões antigas (patient_id null)
+  await supabase
+    .from("revenues")
+    .delete()
+    .is("patient_id", null)
+    .eq("user_id", userId)
+
+  const { error } = await supabase
+    .from("patients")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId)
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/", "layout")
+  revalidatePath("/pacientes")
+  revalidatePath("/tratamentos")
+  revalidatePath("/receitas")
+  revalidatePath("/despesas")
+  revalidatePath("/dashboard")
 }
 
 export async function createSession(formData: FormData) {
@@ -180,19 +236,24 @@ export async function createRevenue(formData: FormData) {
 
   const grossAmount = Number(formData.get("gross_amount") || 0)
   const paymentMethod = (formData.get("payment_method") as PaymentMethod) || "pix"
+  const usesCard = isCardPayment(paymentMethod)
   const clinicPercent = Number(
     formData.get("clinic_percent") ?? settings?.clinic_percent ?? 30,
   )
-  const cardFeePercent = Number(
-    formData.get("card_fee_percent") ?? settings?.card_fee_percent ?? 3.5,
-  )
-  const clinicBaseMode =
-    (formData.get("clinic_base_mode") as ClinicBaseMode) ||
-    settings?.default_clinic_base_mode ||
-    "without_fee"
-  const clinicSharesCardFee =
-    formData.get("clinic_shares_card_fee") === "true" ||
-    formData.get("clinic_shares_card_fee") === "on"
+  const cardFeePercent = usesCard
+    ? Number(
+        formData.get("card_fee_percent") ?? settings?.card_fee_percent ?? 3.5,
+      )
+    : 0
+  const clinicBaseMode = usesCard
+    ? ((formData.get("clinic_base_mode") as ClinicBaseMode) ||
+        settings?.default_clinic_base_mode ||
+        "without_fee")
+    : "without_fee"
+  const clinicSharesCardFee = usesCard
+    ? formData.get("clinic_shares_card_fee") === "true" ||
+      formData.get("clinic_shares_card_fee") === "on"
+    : false
 
   const split = calculateSplit({
     grossAmount,
@@ -228,9 +289,21 @@ export async function createRevenue(formData: FormData) {
   })
 
   if (error) throw new Error(error.message)
+
+  const installmentId = (formData.get("installment_id") as string) || ""
+  if (installmentId) {
+    await supabase
+      .from("installments")
+      .update({ status: "paga", paid_at: new Date().toISOString().slice(0, 10) })
+      .eq("id", installmentId)
+      .eq("user_id", userId)
+  }
+
+  const patientId = (formData.get("patient_id") as string) || ""
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
+  if (patientId) revalidatePath(`/pacientes/${patientId}`)
 }
 
 export async function createExpense(formData: FormData) {
