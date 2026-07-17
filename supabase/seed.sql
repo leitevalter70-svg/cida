@@ -1,0 +1,2 @@
+-- Optional local seed (supabase db reset). Remote projects seed via handle_new_user.
+-- Intentionally empty for MVP — create a user via the app signup/login flow.
