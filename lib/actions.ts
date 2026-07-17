@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { calculateSplit, isCardPayment } from "@/lib/finance/split"
+import { adherencePercent } from "@/lib/clinical/chance"
 import type {
   ClinicBaseMode,
   PaymentMethod,
@@ -25,18 +26,87 @@ async function getUserId() {
   return { supabase, userId: user.id }
 }
 
-export async function createPatient(formData: FormData) {
+function normalizePatientName(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase()
+}
+
+function normalizePhoneDigits(phone: string) {
+  return phone.replace(/\D/g, "")
+}
+
+function escapeIlike(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
+}
+
+export type CreatePatientResult =
+  | { ok: true; id: string }
+  | { ok: false; existingId: string; existingName: string; reason: "nome" | "telefone" }
+
+export async function createPatient(formData: FormData): Promise<CreatePatientResult> {
   const { supabase, userId } = await getUserId()
   const ageRaw = formData.get("age_years") as string
+  const fullName = String(formData.get("full_name") || "").trim().replace(/\s+/g, " ")
+  const phoneRaw = String(formData.get("phone") || "").trim()
+  const phone = phoneRaw || null
+  const phoneDigits = phone ? normalizePhoneDigits(phone) : ""
+
+  if (!fullName) {
+    throw new Error("Nome é obrigatório")
+  }
+
+  const { data: nameCandidates, error: nameError } = await supabase
+    .from("patients")
+    .select("id, full_name, phone")
+    .eq("user_id", userId)
+    .ilike("full_name", escapeIlike(fullName))
+
+  if (nameError) throw new Error(nameError.message)
+
+  const nameMatch = (nameCandidates ?? []).find(
+    (p) => normalizePatientName(p.full_name) === normalizePatientName(fullName),
+  )
+  if (nameMatch) {
+    return {
+      ok: false,
+      existingId: nameMatch.id,
+      existingName: nameMatch.full_name,
+      reason: "nome",
+    }
+  }
+
+  if (phoneDigits.length >= 8) {
+    const { data: phoneCandidates, error: phoneError } = await supabase
+      .from("patients")
+      .select("id, full_name, phone")
+      .eq("user_id", userId)
+      .not("phone", "is", null)
+
+    if (phoneError) throw new Error(phoneError.message)
+
+    const phoneMatch = (phoneCandidates ?? []).find(
+      (p) =>
+        p.phone &&
+        normalizePhoneDigits(p.phone) === phoneDigits,
+    )
+    if (phoneMatch) {
+      return {
+        ok: false,
+        existingId: phoneMatch.id,
+        existingName: phoneMatch.full_name,
+        reason: "telefone",
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from("patients")
     .insert({
       user_id: userId,
-      full_name: String(formData.get("full_name") || "").trim(),
+      full_name: fullName,
       birth_date: (formData.get("birth_date") as string) || null,
       age_years: ageRaw ? Number(ageRaw) : null,
       sex: (formData.get("sex") as PatientSex) || "nao_informado",
-      phone: (formData.get("phone") as string) || null,
+      phone,
       email: (formData.get("email") as string) || null,
       complaint_focus: (formData.get("complaint_focus") as string) || null,
       notes: (formData.get("notes") as string) || null,
@@ -47,7 +117,7 @@ export async function createPatient(formData: FormData) {
   if (error) throw new Error(error.message)
   revalidatePath("/pacientes")
   revalidatePath("/tratamentos")
-  return { id: data.id as string }
+  return { ok: true, id: data.id as string }
 }
 
 export async function updatePatient(id: string, formData: FormData) {
@@ -71,6 +141,37 @@ export async function updatePatient(id: string, formData: FormData) {
   if (error) throw new Error(error.message)
   revalidatePath("/pacientes")
   revalidatePath(`/pacientes/${id}`)
+}
+
+export async function updateTreatmentPlannedSessions(
+  treatmentId: string,
+  formData: FormData,
+) {
+  const { supabase, userId } = await getUserId()
+  const plannedSessions = Math.max(
+    1,
+    Number(formData.get("planned_sessions") || 1),
+  )
+
+  const { data: treatment, error } = await supabase
+    .from("treatments")
+    .update({ planned_sessions: plannedSessions })
+    .eq("id", treatmentId)
+    .eq("user_id", userId)
+    .select("id, patient_id")
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  await supabase
+    .from("clinical_reports")
+    .update({ sessions_planned: plannedSessions })
+    .eq("treatment_id", treatmentId)
+    .eq("user_id", userId)
+
+  revalidatePath("/tratamentos")
+  revalidatePath(`/pacientes/${treatment.patient_id}`)
+  revalidatePath(`/relatorios/clinico/${treatmentId}`)
 }
 
 export async function deletePatient(id: string) {
@@ -455,8 +556,9 @@ export async function completeTreatment(treatmentId: string) {
   const { data: sessions } = await supabase
     .from("sessions")
     .select("*, session_devices(device_id, device_catalog(name))")
-    .eq("treatment_id", treatmentId)
+    .eq("patient_id", treatment.patient_id)
     .eq("user_id", userId)
+    .or(`treatment_id.eq.${treatmentId},treatment_id.is.null`)
     .order("session_date", { ascending: true })
 
   const { data: defaults } = await supabase
@@ -480,12 +582,13 @@ export async function completeTreatment(treatmentId: string) {
 
   const done = sessions?.length ?? 0
   const planned = treatment.planned_sessions
-  const adherence =
-    planned > 0 ? Math.round((done / planned) * 1000) / 10 : 0
+  const adherence = adherencePercent(done, planned)
 
   const scales =
     sessions
-      ?.map((s) => s.evolution_scale)
+      ?.map((s) =>
+        s.evolution_scale != null ? Number(s.evolution_scale) : null,
+      )
       .filter((s): s is number => s != null) ?? []
   const scaleStart = scales[0] ?? null
   const scaleEnd = scales.length ? scales[scales.length - 1] : null
@@ -535,6 +638,12 @@ export async function completeTreatment(treatmentId: string) {
     .eq("id", patient.id)
     .eq("user_id", userId)
 
+  const firstSessionDate = sessions?.[0]?.session_date ?? null
+  const lastSessionDate =
+    sessions && sessions.length > 0
+      ? sessions[sessions.length - 1].session_date
+      : null
+
   const { data: report, error: rError } = await supabase
     .from("clinical_reports")
     .upsert(
@@ -554,8 +663,8 @@ export async function completeTreatment(treatmentId: string) {
         devices_summary: devicesSummary,
         chance_summary: chanceSummary,
         complaint_focus: complaint,
-        treatment_period_start: treatment.started_at,
-        treatment_period_end: new Date().toISOString().slice(0, 10),
+        treatment_period_start: firstSessionDate,
+        treatment_period_end: lastSessionDate,
       },
       { onConflict: "treatment_id" },
     )

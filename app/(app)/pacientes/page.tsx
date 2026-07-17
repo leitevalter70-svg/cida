@@ -1,14 +1,10 @@
-import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { SetupNotice } from "@/components/setup-notice"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PatientForm } from "@/components/forms/patient-form"
-import {
-  complaintLabel,
-  resolveComplaintOptions,
-} from "@/lib/clinical/complaints"
+import { resolveComplaintOptions } from "@/lib/clinical/complaints"
+import { PatientsList } from "@/components/patients-list"
 
 export default async function PacientesPage() {
   let patients: any[] = []
@@ -55,30 +51,8 @@ export default async function PacientesPage() {
           <CardHeader>
             <CardTitle className="text-base">Lista</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {patients.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Nenhum paciente cadastrado ainda.
-              </p>
-            ) : (
-              patients.map((p) => (
-                <Link
-                  key={p.id}
-                  href={`/pacientes/${p.id}`}
-                  className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 hover:bg-secondary"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{p.full_name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {complaintLabel(p.complaint_focus) ||
-                        "Sem queixa definida"}
-                      {p.age_years != null ? ` · ${p.age_years} anos` : ""}
-                    </p>
-                  </div>
-                  <Badge variant="secondary">{p.status}</Badge>
-                </Link>
-              ))
-            )}
+          <CardContent>
+            <PatientsList patients={patients} />
           </CardContent>
         </Card>
       </div>

@@ -27,6 +27,13 @@ const styles = StyleSheet.create({
     color: "#2a6f77",
   },
   row: { marginBottom: 4, lineHeight: 1.4 },
+  label: { fontFamily: "Helvetica-Bold" },
+  sessionCard: {
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8e8",
+  },
   disclaimer: {
     marginTop: 20,
     fontSize: 9,
@@ -41,9 +48,27 @@ const styles = StyleSheet.create({
   },
 })
 
+export type ClinicalPdfSession = {
+  date: string
+  scale: number | null
+  complaint: string | null
+  procedures: string | null
+  devices: string[]
+  accessRoute: string | null
+  deviceNotes: string | null
+  patientResponse: string | null
+  nextStep: string | null
+}
+
 export type ClinicalPdfData = {
   patientName: string
   age: number | null
+  sex: string | null
+  phone: string | null
+  email: string | null
+  patientNotes: string | null
+  patientStatus: string | null
+  protocolName: string | null
   complaint: string | null
   periodStart: string | null
   periodEnd: string | null
@@ -57,34 +82,54 @@ export type ClinicalPdfData = {
   synthesis: string | null
   maintenance: string | null
   disclaimer: string
-  sessionNotes: { date: string; scale: number | null; text: string | null }[]
+  sessions: ClinicalPdfSession[]
+}
+
+function Field({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number | null | undefined
+}) {
+  if (value == null || value === "") return null
+  return (
+    <Text style={styles.row}>
+      <Text style={styles.label}>{label}: </Text>
+      {String(value)}
+    </Text>
+  )
 }
 
 function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={styles.page} wrap>
         <Text style={styles.title}>Relatório clínico</Text>
         <Text style={styles.subtitle}>
           Documento exclusivo para a paciente — sem informações financeiras
         </Text>
 
         <View style={styles.section}>
-          <Text style={styles.heading}>Identificação</Text>
-          <Text style={styles.row}>Nome: {data.patientName}</Text>
-          {data.age != null && (
-            <Text style={styles.row}>Idade: {data.age} anos</Text>
-          )}
-          {data.complaint && (
-            <Text style={styles.row}>Queixa / foco: {data.complaint}</Text>
-          )}
-          <Text style={styles.row}>
-            Período: {data.periodStart || "—"} a {data.periodEnd || "—"}
-          </Text>
+          <Text style={styles.heading}>Identificação da paciente</Text>
+          <Field label="Nome" value={data.patientName} />
+          <Field
+            label="Idade"
+            value={data.age != null ? `${data.age} anos` : null}
+          />
+          <Field label="Sexo" value={data.sex} />
+          <Field label="Telefone" value={data.phone} />
+          <Field label="E-mail" value={data.email} />
+          <Field label="Status" value={data.patientStatus} />
+          <Field label="Queixa / foco" value={data.complaint} />
+          <Field label="Observações do cadastro" value={data.patientNotes} />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.heading}>Percurso</Text>
+          <Text style={styles.heading}>Tratamento</Text>
+          <Text style={styles.row}>
+            Período: {data.periodStart || "—"} a {data.periodEnd || "—"}
+          </Text>
           <Text style={styles.row}>
             Sessões: {data.sessionsDone ?? 0} de {data.sessionsPlanned ?? 0}{" "}
             previstas
@@ -110,15 +155,31 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
           </View>
         </View>
 
-        {data.sessionNotes.length > 0 && (
+        {data.sessions.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.heading}>Principais condutas</Text>
-            {data.sessionNotes.slice(0, 8).map((s, i) => (
-              <Text key={i} style={styles.row}>
-                {s.date}
-                {s.scale != null ? ` (escala ${s.scale})` : ""}:{" "}
-                {s.text || "—"}
-              </Text>
+            <Text style={styles.heading}>Histórico completo das sessões</Text>
+            {data.sessions.map((s, i) => (
+              <View key={i} style={styles.sessionCard} wrap={false}>
+                <Text style={styles.row}>
+                  <Text style={styles.label}>
+                    Sessão {i + 1} — {s.date}
+                  </Text>
+                  {s.scale != null ? ` · Escala ${s.scale}` : ""}
+                </Text>
+                <Field label="Queixa / foco do dia" value={s.complaint} />
+                <Field label="Condutas realizadas" value={s.procedures} />
+                <Field
+                  label="Aparelhos"
+                  value={s.devices.length > 0 ? s.devices.join(", ") : null}
+                />
+                <Field label="Via / acessório" value={s.accessRoute} />
+                <Field label="Obs. aparelho" value={s.deviceNotes} />
+                <Field
+                  label="Resposta / observação"
+                  value={s.patientResponse}
+                />
+                <Field label="Próximo passo" value={s.nextStep} />
+              </View>
             ))}
           </View>
         )}

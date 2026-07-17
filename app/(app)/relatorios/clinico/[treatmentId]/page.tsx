@@ -12,6 +12,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { formatData } from "@/lib/format"
 import { EvolutionChart } from "@/components/evolution-chart"
+import { complaintLabel } from "@/lib/clinical/complaints"
+import { adherencePercent } from "@/lib/clinical/chance"
+
+const SEX_LABELS: Record<string, string> = {
+  feminino: "Feminino",
+  masculino: "Masculino",
+  outro: "Outro",
+  nao_informado: "Não informado",
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  ativo: "Ativo",
+  em_tratamento: "Em tratamento",
+  alta: "Alta",
+  inativo: "Inativo",
+}
+
+const ACCESS_LABELS: Record<string, string> = {
+  sonda_vaginal: "Sonda vaginal",
+  sonda_anal: "Sonda anal",
+  eletrodo_superficie: "Eletrodo de superfície",
+  outro: "Outro",
+  nao_aplicavel: "Não aplicável",
+}
 
 export default async function RelatorioClinicoPage({
   params,
@@ -46,8 +70,9 @@ export default async function RelatorioClinicoPage({
 
   const { data: sessions } = await supabase
     .from("sessions")
-    .select("*")
-    .eq("treatment_id", treatmentId)
+    .select("*, session_devices(device_catalog(name))")
+    .eq("patient_id", treatment.patient_id)
+    .or(`treatment_id.eq.${treatmentId},treatment_id.is.null`)
     .order("session_date", { ascending: true })
 
   const { data: defaults } = await supabase
@@ -72,6 +97,12 @@ export default async function RelatorioClinicoPage({
   const patient = treatment.patients as {
     full_name: string
     age_years: number | null
+    sex: string | null
+    phone: string | null
+    email: string | null
+    notes: string | null
+    status: string | null
+    complaint_focus: string | null
   }
 
   const chartData =
@@ -79,39 +110,115 @@ export default async function RelatorioClinicoPage({
       ?.filter((s) => s.evolution_scale != null)
       .map((s) => ({
         date: formatData(s.session_date),
-        escala: s.evolution_scale as number,
+        escala: Number(s.evolution_scale),
       })) ?? []
+
+  const complaint =
+    complaintLabel(report.complaint_focus) || report.complaint_focus
+
+  const firstSessionDate = sessions?.[0]?.session_date ?? null
+  const lastSessionDate =
+    sessions && sessions.length > 0
+      ? sessions[sessions.length - 1].session_date
+      : null
+  const periodStartRaw = firstSessionDate || report.treatment_period_start
+  const periodEndRaw = lastSessionDate || report.treatment_period_end
+
+  const sessionsDone = sessions?.length ?? 0
+  const sessionsPlanned = Number(
+    report.sessions_planned ?? treatment.planned_sessions ?? 0,
+  )
+  const adherence = adherencePercent(sessionsDone, sessionsPlanned)
+
+  const scales =
+    sessions
+      ?.map((s) =>
+        s.evolution_scale != null ? Number(s.evolution_scale) : null,
+      )
+      .filter((s): s is number => s != null) ?? []
+  const scaleStart = scales[0] ?? null
+  const scaleEnd = scales.length ? scales[scales.length - 1] : null
+
+  const deviceCounts = new Map<string, number>()
+  sessions?.forEach((s) => {
+    const devices = s.session_devices as
+      | { device_catalog: { name: string } | null }[]
+      | null
+    devices?.forEach((d) => {
+      const name = d.device_catalog?.name
+      if (name) deviceCounts.set(name, (deviceCounts.get(name) || 0) + 1)
+    })
+  })
+  const devicesSummary =
+    deviceCounts.size === 0
+      ? report.devices_summary || "Sem aparelhos eletrônicos registrados"
+      : Array.from(deviceCounts.entries())
+          .map(
+            ([name, count]) =>
+              `${name} em ${count} de ${sessionsDone} sessões`,
+          )
+          .join("; ")
+
+  const chanceSummaryText =
+    report.chance_summary?.replace(
+      /Adesão neste (tratamento|percurso): [\d.,]+%/,
+      `Adesão neste tratamento: ${adherence}%`,
+    ) ||
+    `Adesão neste tratamento: ${adherence}%.`
+
+  const pdfSessions =
+    sessions?.map((s) => {
+      const deviceNames =
+        (s.session_devices as { device_catalog: { name: string } }[])
+          ?.map((d) => d.device_catalog?.name)
+          .filter(Boolean) ?? []
+      const access =
+        s.access_route && s.access_route !== "nao_aplicavel"
+          ? ACCESS_LABELS[s.access_route] || s.access_route
+          : null
+      return {
+        date: formatData(s.session_date),
+        scale:
+          s.evolution_scale != null ? Number(s.evolution_scale) : null,
+        complaint:
+          complaintLabel(s.daily_complaint) ||
+          (s.daily_complaint as string | null),
+        procedures: s.procedures_done as string | null,
+        devices: deviceNames as string[],
+        accessRoute: access,
+        deviceNotes: s.device_notes as string | null,
+        patientResponse: s.patient_response as string | null,
+        nextStep: s.next_step as string | null,
+      }
+    }) ?? []
 
   const pdfData: ClinicalPdfData = {
     patientName: patient.full_name,
     age: patient.age_years,
-    complaint: report.complaint_focus,
-    periodStart: report.treatment_period_start
-      ? formatData(report.treatment_period_start)
+    sex: patient.sex ? SEX_LABELS[patient.sex] || patient.sex : null,
+    phone: patient.phone,
+    email: patient.email,
+    patientNotes: patient.notes,
+    patientStatus: patient.status
+      ? STATUS_LABELS[patient.status] || patient.status
       : null,
-    periodEnd: report.treatment_period_end
-      ? formatData(report.treatment_period_end)
-      : null,
-    sessionsPlanned: report.sessions_planned,
-    sessionsDone: report.sessions_done,
-    adherence: report.adherence_percent
-      ? Number(report.adherence_percent)
-      : null,
-    scaleStart: report.scale_start,
-    scaleEnd: report.scale_end,
-    devicesSummary: report.devices_summary,
-    chanceSummary: report.chance_summary,
+    protocolName: treatment.protocol_name,
+    complaint,
+    periodStart: periodStartRaw ? formatData(periodStartRaw) : null,
+    periodEnd: periodEndRaw ? formatData(periodEndRaw) : null,
+    sessionsPlanned,
+    sessionsDone,
+    adherence,
+    scaleStart,
+    scaleEnd,
+    devicesSummary,
+    chanceSummary: chanceSummaryText,
     synthesis: report.synthesis_text,
     maintenance: report.maintenance_guidance,
     disclaimer:
       defaults?.disclaimer_text ||
       "Estimativa populacional; não é garantia de cura.",
-    sessionNotes:
-      sessions?.map((s) => ({
-        date: formatData(s.session_date),
-        scale: s.evolution_scale,
-        text: s.procedures_done,
-      })) ?? [],
+    sessions: pdfSessions,
   }
 
   return (
@@ -137,43 +244,191 @@ export default async function RelatorioClinicoPage({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Resumo clínico</CardTitle>
+            <CardTitle className="text-base">Dados da paciente</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
+          <CardContent className="space-y-1.5 text-sm">
             <p>
-              Sessões: {report.sessions_done}/{report.sessions_planned} ·
-              Adesão {report.adherence_percent}%
+              <span className="text-muted-foreground">Nome:</span>{" "}
+              {patient.full_name}
             </p>
-            <p>
-              Escala: {report.scale_start ?? "—"} → {report.scale_end ?? "—"}
-            </p>
-            <p className="text-muted-foreground">{report.devices_summary}</p>
-            <p className="rounded-lg bg-secondary/50 p-3 text-xs">
-              {report.chance_summary}
-            </p>
-            <EvolutionChart data={chartData} />
+            {patient.age_years != null && (
+              <p>
+                <span className="text-muted-foreground">Idade:</span>{" "}
+                {patient.age_years} anos
+              </p>
+            )}
+            {patient.sex && (
+              <p>
+                <span className="text-muted-foreground">Sexo:</span>{" "}
+                {SEX_LABELS[patient.sex] || patient.sex}
+              </p>
+            )}
+            {patient.phone && (
+              <p>
+                <span className="text-muted-foreground">Telefone:</span>{" "}
+                {patient.phone}
+              </p>
+            )}
+            {patient.email && (
+              <p>
+                <span className="text-muted-foreground">E-mail:</span>{" "}
+                {patient.email}
+              </p>
+            )}
+            {patient.status && (
+              <p>
+                <span className="text-muted-foreground">Status:</span>{" "}
+                {STATUS_LABELS[patient.status] || patient.status}
+              </p>
+            )}
+            {complaint && (
+              <p>
+                <span className="text-muted-foreground">Queixa / foco:</span>{" "}
+                {complaint}
+              </p>
+            )}
+            {patient.notes && (
+              <p>
+                <span className="text-muted-foreground">Observações:</span>{" "}
+                {patient.notes}
+              </p>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Revisar antes do PDF</CardTitle>
+            <CardTitle className="text-base">Resumo do tratamento</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <ClinicalReportEditor
-              reportId={report.id}
-              treatmentId={treatmentId}
-              synthesis={report.synthesis_text}
-              maintenance={report.maintenance_guidance}
-            />
-            <DownloadClinicalPdfButton data={pdfData} />
-            <p className="text-xs text-muted-foreground">
-              O PDF não inclui valores, parcelas, % da clínica nem taxa de
-              cartão.
+          <CardContent className="space-y-2 text-sm">
+            <p>
+              Período:{" "}
+              {periodStartRaw ? formatData(periodStartRaw) : "—"} a{" "}
+              {periodEndRaw ? formatData(periodEndRaw) : "—"}
             </p>
+            <p>
+              Sessões: {sessionsDone}/{sessionsPlanned} · Adesão {adherence}%
+            </p>
+            <p>
+              Escala: {scaleStart ?? "—"} → {scaleEnd ?? "—"}
+            </p>
+            <p className="text-muted-foreground">{devicesSummary}</p>
+            <p className="rounded-lg bg-secondary/50 p-3 text-xs">
+              {chanceSummaryText}
+            </p>
+            <EvolutionChart data={chartData} />
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Histórico completo das sessões
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {pdfSessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma sessão encontrada para esta paciente.
+            </p>
+          ) : (
+            pdfSessions.map((s, i) => (
+              <div
+                key={`${s.date}-${i}`}
+                className="rounded-lg border border-border px-3 py-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">
+                    Sessão {i + 1} — {s.date}
+                  </p>
+                  {s.scale != null && <Badge>Escala {s.scale}</Badge>}
+                </div>
+                <dl className="mt-2 space-y-1.5 text-sm">
+                  {s.complaint && (
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Queixa / foco do dia
+                      </dt>
+                      <dd>{s.complaint}</dd>
+                    </div>
+                  )}
+                  {s.procedures && (
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Condutas
+                      </dt>
+                      <dd className="whitespace-pre-wrap">{s.procedures}</dd>
+                    </div>
+                  )}
+                  {s.accessRoute && (
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Via / acessório
+                      </dt>
+                      <dd>{s.accessRoute}</dd>
+                    </div>
+                  )}
+                  {s.deviceNotes && (
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Obs. aparelho
+                      </dt>
+                      <dd>{s.deviceNotes}</dd>
+                    </div>
+                  )}
+                  {s.patientResponse && (
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Resposta / observação
+                      </dt>
+                      <dd className="whitespace-pre-wrap">
+                        {s.patientResponse}
+                      </dd>
+                    </div>
+                  )}
+                  {s.nextStep && (
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Próximo passo
+                      </dt>
+                      <dd>{s.nextStep}</dd>
+                    </div>
+                  )}
+                </dl>
+                {s.devices.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {s.devices.map((n) => (
+                      <Badge key={n} variant="outline">
+                        {n}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Revisar antes do PDF</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <ClinicalReportEditor
+            reportId={report.id}
+            treatmentId={treatmentId}
+            synthesis={report.synthesis_text}
+            maintenance={report.maintenance_guidance}
+          />
+          <DownloadClinicalPdfButton data={pdfData} />
+          <p className="text-xs text-muted-foreground">
+            O PDF inclui todos os dados clínicos da paciente e das sessões.
+            Não inclui valores, parcelas, % da clínica nem taxa de cartão.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   )
 }

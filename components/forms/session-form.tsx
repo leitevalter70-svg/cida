@@ -27,6 +27,7 @@ export function SessionForm({
 }) {
   const [pending, startTransition] = useTransition()
   const active = treatments.filter((t) => t.status === "ativo")
+  const defaultTreatmentId = active[0]?.id ?? ""
   const options = resolveComplaintOptions(
     (complaintOptions ?? []).map((o) => o.value),
     defaultComplaint,
@@ -73,7 +74,7 @@ export function SessionForm({
           id="treatment_id"
           name="treatment_id"
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-          defaultValue=""
+          defaultValue={defaultTreatmentId}
         >
           <option value="">Avulso / sem vínculo</option>
           {active.map((t) => (

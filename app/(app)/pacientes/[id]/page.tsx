@@ -6,6 +6,7 @@ import { PatientForm } from "@/components/forms/patient-form"
 import { SessionForm } from "@/components/forms/session-form"
 import { RevenueForm } from "@/components/forms/revenue-form"
 import { DeletePatientButton } from "@/components/forms/delete-patient-button"
+import { TreatmentPlannedSessionsForm } from "@/components/forms/treatment-planned-sessions-form"
 import { EvolutionChart } from "@/components/evolution-chart"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -107,16 +108,15 @@ export default async function PacienteDetailPage({
   )
 
   const activeTreatment = treatments?.find((t) => t.status === "ativo")
-  const done = sessions?.filter((s) =>
-    activeTreatment ? s.treatment_id === activeTreatment.id : true,
-  ).length ?? 0
-  const planned = activeTreatment?.planned_sessions ?? sessions?.length ?? 0
-  const adherence = adherencePercent(
-    activeTreatment
-      ? sessions?.filter((s) => s.treatment_id === activeTreatment.id).length ?? 0
-      : done,
-    planned || 1,
-  )
+  const sessionsForAdherence =
+    sessions?.filter((s) =>
+      activeTreatment
+        ? s.treatment_id === activeTreatment.id || s.treatment_id == null
+        : true,
+    ) ?? []
+  const done = sessionsForAdherence.length
+  const planned = activeTreatment?.planned_sessions ?? 0
+  const adherence = adherencePercent(done, planned)
   const band = bands?.find(
     (b) =>
       patient.complaint_focus &&
@@ -202,6 +202,18 @@ export default async function PacienteDetailPage({
         ))}
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Editar dados do paciente</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PatientForm
+            patient={patient}
+            complaintOptions={complaintOptions}
+          />
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {settings?.clinical_chance_indicator_enabled !== false && (
           <Card className="lg:col-span-1">
@@ -211,6 +223,9 @@ export default async function PacienteDetailPage({
             <CardContent className="space-y-2 text-sm">
               <p className="text-2xl font-bold">{adherence}%</p>
               <p className="text-muted-foreground">{chance.zoneLabel}</p>
+              <p className="text-xs text-muted-foreground">
+                {done} de {planned || "—"} sessões previstas
+              </p>
               <p>
                 Literatura cura/melhora:{" "}
                 <strong>{chance.literatureRange}</strong>
@@ -459,50 +474,44 @@ export default async function PacienteDetailPage({
               return (
                 <div
                   key={t.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                  className="rounded-lg border border-border px-3 py-3"
                 >
-                  <div>
-                    <p className="font-medium">{t.protocol_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t.kind} · {t.planned_sessions} sessões · {t.status}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Link
-                      href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
-                      className={cn(
-                        buttonVariants({ size: "sm", variant: "outline" }),
-                      )}
-                    >
-                      Lançar receita
-                    </Link>
-                    {report && (
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{t.protocol_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t.status}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
                       <Link
-                        href={`/relatorios/clinico/${t.id}`}
+                        href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
                         className={cn(
                           buttonVariants({ size: "sm", variant: "outline" }),
                         )}
                       >
-                        Relatório clínico
+                        Lançar receita
                       </Link>
-                    )}
+                      {report && (
+                        <Link
+                          href={`/relatorios/clinico/${t.id}`}
+                          className={cn(
+                            buttonVariants({ size: "sm", variant: "outline" }),
+                          )}
+                        >
+                          Relatório clínico
+                        </Link>
+                      )}
+                    </div>
                   </div>
+                  <TreatmentPlannedSessionsForm
+                    treatmentId={t.id}
+                    plannedSessions={Number(t.planned_sessions)}
+                  />
                 </div>
               )
             })
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Editar dados</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PatientForm
-            patient={patient}
-            complaintOptions={complaintOptions}
-          />
         </CardContent>
       </Card>
     </div>

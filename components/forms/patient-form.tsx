@@ -1,6 +1,6 @@
 "use client"
 
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { createPatient, updatePatient } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,7 @@ export function PatientForm({
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
   const options = resolveComplaintOptions(
     (complaintOptions ?? []).map((o) => o.value),
     patient?.complaint_focus,
@@ -41,12 +42,32 @@ export function PatientForm({
     e.preventDefault()
     const form = e.currentTarget
     const fd = new FormData(form)
+    setError(null)
     startTransition(async () => {
-      if (patient) await updatePatient(patient.id, fd)
-      else {
-        const { id } = await createPatient(fd)
-        router.push(`/tratamentos?paciente=${id}`)
+      try {
+        if (patient) {
+          await updatePatient(patient.id, fd)
+          router.refresh()
+          return
+        }
+
+        const result = await createPatient(fd)
+        if (!result.ok) {
+          const by =
+            result.reason === "telefone" ? "mesmo telefone" : "mesmo nome"
+          setError(
+            `Paciente já cadastrado (${by}): ${result.existingName}. Abrindo a ficha existente…`,
+          )
+          router.push(`/pacientes/${result.existingId}`)
+          return
+        }
+
+        router.push(`/tratamentos?paciente=${result.id}`)
         router.refresh()
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Não foi possível salvar.",
+        )
       }
     })
   }
@@ -139,6 +160,11 @@ export function PatientForm({
           defaultValue={patient?.notes ?? ""}
         />
       </div>
+      {error && (
+        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
       <Button type="submit" disabled={pending}>
         {pending
           ? "Salvando…"
