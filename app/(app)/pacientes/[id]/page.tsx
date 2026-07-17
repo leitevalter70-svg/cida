@@ -239,7 +239,10 @@ export default async function PacienteDetailPage({
           {(treatments ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nenhum tratamento.{" "}
-              <Link href="/tratamentos" className="text-primary underline">
+              <Link
+                href={`/tratamentos?paciente=${patient.id}`}
+                className="text-primary underline"
+              >
                 Criar em Tratamentos
               </Link>
             </p>

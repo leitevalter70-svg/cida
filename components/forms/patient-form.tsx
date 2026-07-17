@@ -1,6 +1,7 @@
 "use client"
 
 import { useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { createPatient, updatePatient } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,6 +30,7 @@ export function PatientForm({
   }
   complaintOptions?: ComplaintOption[]
 }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const options = resolveComplaintOptions(
     (complaintOptions ?? []).map((o) => o.value),
@@ -42,8 +44,9 @@ export function PatientForm({
     startTransition(async () => {
       if (patient) await updatePatient(patient.id, fd)
       else {
-        await createPatient(fd)
-        form.reset()
+        const { id } = await createPatient(fd)
+        router.push(`/tratamentos?paciente=${id}`)
+        router.refresh()
       }
     })
   }
@@ -137,7 +140,11 @@ export function PatientForm({
         />
       </div>
       <Button type="submit" disabled={pending}>
-        {pending ? "Salvando…" : patient ? "Atualizar" : "Cadastrar"}
+        {pending
+          ? "Salvando…"
+          : patient
+            ? "Atualizar"
+            : "Cadastrar e ir ao tratamento"}
       </Button>
     </form>
   )

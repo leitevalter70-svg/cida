@@ -10,7 +10,12 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBRL } from "@/lib/format"
 
-export default async function TratamentosPage() {
+export default async function TratamentosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ paciente?: string }>
+}) {
+  const { paciente: defaultPatientId = "" } = await searchParams
   let patients: any[] = []
   let treatments: any[] = []
 
@@ -29,13 +34,17 @@ export default async function TratamentosPage() {
     treatments = t ?? []
   }
 
+  const selectedPatient = patients.find((p) => p.id === defaultPatientId)
+
   return (
     <div className="flex flex-col gap-6">
       <SetupNotice />
       <div>
         <h1 className="text-2xl font-bold">Tratamentos</h1>
         <p className="text-sm text-muted-foreground">
-          Pacotes, avulsos e parcelas
+          {selectedPatient
+            ? `Paciente selecionado: ${selectedPatient.full_name}`
+            : "Pacotes, avulsos e parcelas"}
         </p>
       </div>
 
@@ -45,7 +54,11 @@ export default async function TratamentosPage() {
             <CardTitle className="text-base">Novo tratamento</CardTitle>
           </CardHeader>
           <CardContent>
-            <TreatmentForm patients={patients} />
+            <TreatmentForm
+              key={defaultPatientId || "novo"}
+              patients={patients}
+              defaultPatientId={defaultPatientId}
+            />
           </CardContent>
         </Card>
 

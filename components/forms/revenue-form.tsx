@@ -21,6 +21,8 @@ export function RevenueForm({
   treatments,
   installments,
   settings,
+  defaultPatientId = "",
+  defaultTreatmentId = "",
 }: {
   patients: { id: string; full_name: string }[]
   treatments: { id: string; patient_id: string; protocol_name: string }[]
@@ -32,6 +34,8 @@ export function RevenueForm({
     status: string
   }[]
   settings: Settings | null
+  defaultPatientId?: string
+  defaultTreatmentId?: string
 }) {
   const [pending, startTransition] = useTransition()
   const [gross, setGross] = useState(0)
@@ -48,8 +52,8 @@ export function RevenueForm({
   const [sharesFee, setSharesFee] = useState(
     settings?.default_clinic_shares_card_fee ?? false,
   )
-  const [patientId, setPatientId] = useState("")
-  const [treatmentId, setTreatmentId] = useState("")
+  const [patientId, setPatientId] = useState(defaultPatientId)
+  const [treatmentId, setTreatmentId] = useState(defaultTreatmentId)
 
   const split = useMemo(
     () =>

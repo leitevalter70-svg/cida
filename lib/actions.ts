@@ -28,20 +28,26 @@ async function getUserId() {
 export async function createPatient(formData: FormData) {
   const { supabase, userId } = await getUserId()
   const ageRaw = formData.get("age_years") as string
-  const { error } = await supabase.from("patients").insert({
-    user_id: userId,
-    full_name: String(formData.get("full_name") || "").trim(),
-    birth_date: (formData.get("birth_date") as string) || null,
-    age_years: ageRaw ? Number(ageRaw) : null,
-    sex: (formData.get("sex") as PatientSex) || "nao_informado",
-    phone: (formData.get("phone") as string) || null,
-    email: (formData.get("email") as string) || null,
-    complaint_focus: (formData.get("complaint_focus") as string) || null,
-    notes: (formData.get("notes") as string) || null,
-    status: (formData.get("status") as PatientStatus) || "ativo",
-  })
+  const { data, error } = await supabase
+    .from("patients")
+    .insert({
+      user_id: userId,
+      full_name: String(formData.get("full_name") || "").trim(),
+      birth_date: (formData.get("birth_date") as string) || null,
+      age_years: ageRaw ? Number(ageRaw) : null,
+      sex: (formData.get("sex") as PatientSex) || "nao_informado",
+      phone: (formData.get("phone") as string) || null,
+      email: (formData.get("email") as string) || null,
+      complaint_focus: (formData.get("complaint_focus") as string) || null,
+      notes: (formData.get("notes") as string) || null,
+      status: (formData.get("status") as PatientStatus) || "ativo",
+    })
+    .select("id")
+    .single()
   if (error) throw new Error(error.message)
   revalidatePath("/pacientes")
+  revalidatePath("/tratamentos")
+  return { id: data.id as string }
 }
 
 export async function updatePatient(id: string, formData: FormData) {
@@ -158,7 +164,9 @@ export async function createTreatment(formData: FormData) {
     .eq("user_id", userId)
 
   revalidatePath("/tratamentos")
+  revalidatePath("/receitas")
   revalidatePath(`/pacientes/${patientId}`)
+  return { id: treatment.id as string, patientId }
 }
 
 export async function createRevenue(formData: FormData) {

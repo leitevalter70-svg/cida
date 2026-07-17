@@ -8,7 +8,15 @@ import { formatBRL, formatData } from "@/lib/format"
 import { paymentMethodLabel } from "@/lib/finance/split"
 import type { PaymentMethod } from "@/lib/types"
 
-export default async function ReceitasPage() {
+export default async function ReceitasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ paciente?: string; tratamento?: string }>
+}) {
+  const {
+    paciente: defaultPatientId = "",
+    tratamento: defaultTreatmentId = "",
+  } = await searchParams
   let patients: any[] = []
   let treatments: any[] = []
   let installments: any[] = []
@@ -41,6 +49,8 @@ export default async function ReceitasPage() {
     settings = s.data
   }
 
+  const selectedPatient = patients.find((p) => p.id === defaultPatientId)
+
   const totals = revenues.reduce(
     (acc, r) => {
       acc.gross += Number(r.gross_amount)
@@ -58,7 +68,9 @@ export default async function ReceitasPage() {
       <div>
         <h1 className="text-2xl font-bold">Receitas</h1>
         <p className="text-sm text-muted-foreground">
-          Lançamentos com rateio clínica / cartão / profissional
+          {selectedPatient
+            ? `Paciente selecionado: ${selectedPatient.full_name}`
+            : "Lançamentos com rateio clínica / cartão / profissional"}
         </p>
       </div>
 
@@ -85,10 +97,13 @@ export default async function ReceitasPage() {
           </CardHeader>
           <CardContent>
             <RevenueForm
+              key={`${defaultPatientId}-${defaultTreatmentId}`}
               patients={patients}
               treatments={treatments}
               installments={installments}
               settings={settings}
+              defaultPatientId={defaultPatientId}
+              defaultTreatmentId={defaultTreatmentId}
             />
           </CardContent>
         </Card>

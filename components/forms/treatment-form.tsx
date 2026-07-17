@@ -1,6 +1,6 @@
 "use client"
 
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { createTreatment, completeTreatment } from "@/lib/actions"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -10,18 +10,25 @@ import { todayISO } from "@/lib/format"
 
 export function TreatmentForm({
   patients,
+  defaultPatientId = "",
 }: {
   patients: { id: string; full_name: string }[]
+  defaultPatientId?: string
 }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const [patientId, setPatientId] = useState(defaultPatientId)
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = e.currentTarget
     const fd = new FormData(form)
     startTransition(async () => {
-      await createTreatment(fd)
-      form.reset()
+      const result = await createTreatment(fd)
+      router.push(
+        `/receitas?paciente=${result.patientId}&tratamento=${result.id}`,
+      )
+      router.refresh()
     })
   }
 
@@ -33,6 +40,8 @@ export function TreatmentForm({
           id="patient_id"
           name="patient_id"
           required
+          value={patientId}
+          onChange={(e) => setPatientId(e.target.value)}
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
         >
           <option value="">Selecione</option>
@@ -111,7 +120,7 @@ export function TreatmentForm({
         </div>
       </div>
       <Button type="submit" disabled={pending}>
-        {pending ? "Salvando…" : "Criar tratamento"}
+        {pending ? "Salvando…" : "Criar e ir à receita"}
       </Button>
     </form>
   )
