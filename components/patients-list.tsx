@@ -13,6 +13,7 @@ type PatientRow = {
   age_years: number | null
   status: string
   phone: string | null
+  email: string | null
 }
 
 export function PatientsList({ patients }: { patients: PatientRow[] }) {
@@ -25,6 +26,7 @@ export function PatientsList({ patients }: { patients: PatientRow[] }) {
       const haystack = [
         p.full_name,
         p.phone ?? "",
+        p.email ?? "",
         p.complaint_focus ?? "",
         complaintLabel(p.complaint_focus) ?? "",
         p.status,
@@ -39,7 +41,7 @@ export function PatientsList({ patients }: { patients: PatientRow[] }) {
     <div className="flex flex-col gap-3">
       <Input
         type="search"
-        placeholder="Buscar paciente por nome, telefone ou queixa…"
+        placeholder="Buscar por nome, telefone, e-mail ou queixa…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         aria-label="Buscar paciente"
@@ -63,6 +65,7 @@ export function PatientsList({ patients }: { patients: PatientRow[] }) {
                 {complaintLabel(p.complaint_focus) || "Sem queixa definida"}
                 {p.age_years != null ? ` · ${p.age_years} anos` : ""}
                 {p.phone ? ` · ${p.phone}` : ""}
+                {p.email ? ` · ${p.email}` : ""}
               </p>
             </div>
             <Badge variant="secondary">{p.status}</Badge>

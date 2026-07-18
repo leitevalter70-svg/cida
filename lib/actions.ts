@@ -41,13 +41,22 @@ function normalizePhoneDigits(phone: string) {
   return phone.replace(/\D/g, "")
 }
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase()
+}
+
 function escapeIlike(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
 }
 
 export type CreatePatientResult =
   | { ok: true; id: string }
-  | { ok: false; existingId: string; existingName: string; reason: "nome" | "telefone" }
+  | {
+      ok: false
+      existingId: string
+      existingName: string
+      reason: "nome" | "telefone" | "email"
+    }
 
 export async function createPatient(formData: FormData): Promise<CreatePatientResult> {
   const { supabase, userId } = await getUserId()
@@ -56,6 +65,8 @@ export async function createPatient(formData: FormData): Promise<CreatePatientRe
   const phoneRaw = String(formData.get("phone") || "").trim()
   const phone = phoneRaw || null
   const phoneDigits = phone ? normalizePhoneDigits(phone) : ""
+  const emailRaw = String(formData.get("email") || "").trim()
+  const email = emailRaw ? normalizeEmail(emailRaw) : null
 
   if (!fullName) {
     throw new Error("Nome é obrigatório")
@@ -105,6 +116,28 @@ export async function createPatient(formData: FormData): Promise<CreatePatientRe
     }
   }
 
+  if (email) {
+    const { data: emailCandidates, error: emailError } = await supabase
+      .from("patients")
+      .select("id, full_name, email")
+      .eq("user_id", userId)
+      .not("email", "is", null)
+
+    if (emailError) throw new Error(emailError.message)
+
+    const emailMatch = (emailCandidates ?? []).find(
+      (p) => p.email && normalizeEmail(p.email) === email,
+    )
+    if (emailMatch) {
+      return {
+        ok: false,
+        existingId: emailMatch.id,
+        existingName: emailMatch.full_name,
+        reason: "email",
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from("patients")
     .insert({
@@ -114,7 +147,7 @@ export async function createPatient(formData: FormData): Promise<CreatePatientRe
       age_years: ageRaw ? Number(ageRaw) : null,
       sex: (formData.get("sex") as PatientSex) || "nao_informado",
       phone,
-      email: (formData.get("email") as string) || null,
+      email,
       complaint_focus: (formData.get("complaint_focus") as string) || null,
       notes: (formData.get("notes") as string) || null,
       status: (formData.get("status") as PatientStatus) || "ativo",
@@ -130,6 +163,8 @@ export async function createPatient(formData: FormData): Promise<CreatePatientRe
 export async function updatePatient(id: string, formData: FormData) {
   const { supabase, userId } = await getUserId()
   const ageRaw = formData.get("age_years") as string
+  const phoneRaw = String(formData.get("phone") || "").trim()
+  const emailRaw = String(formData.get("email") || "").trim()
   const { error } = await supabase
     .from("patients")
     .update({
@@ -137,8 +172,8 @@ export async function updatePatient(id: string, formData: FormData) {
       birth_date: (formData.get("birth_date") as string) || null,
       age_years: ageRaw ? Number(ageRaw) : null,
       sex: (formData.get("sex") as PatientSex) || "nao_informado",
-      phone: (formData.get("phone") as string) || null,
-      email: (formData.get("email") as string) || null,
+      phone: phoneRaw || null,
+      email: emailRaw ? normalizeEmail(emailRaw) : null,
       complaint_focus: (formData.get("complaint_focus") as string) || null,
       notes: (formData.get("notes") as string) || null,
       status: (formData.get("status") as PatientStatus) || "ativo",

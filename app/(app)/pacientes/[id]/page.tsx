@@ -175,6 +175,11 @@ export default async function PacienteDetailPage({
             ← Pacientes
           </Link>
           <h1 className="mt-1 text-2xl font-bold">{patient.full_name}</h1>
+          {(patient.phone || patient.email) && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {[patient.phone, patient.email].filter(Boolean).join(" · ")}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             <Badge variant="secondary">{patient.status}</Badge>
             {patient.complaint_focus && (

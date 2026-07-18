@@ -54,7 +54,11 @@ export function PatientForm({
         const result = await createPatient(fd)
         if (!result.ok) {
           const by =
-            result.reason === "telefone" ? "mesmo telefone" : "mesmo nome"
+            result.reason === "telefone"
+              ? "mesmo telefone"
+              : result.reason === "email"
+                ? "mesmo e-mail"
+                : "mesmo nome"
           setError(
             `Paciente já cadastrado (${by}): ${result.existingName}. Abrindo a ficha existente…`,
           )
@@ -151,6 +155,17 @@ export function PatientForm({
             <option value="inativo">Inativo</option>
           </select>
         </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="email">E-mail</Label>
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          className="w-full"
+          defaultValue={patient?.email ?? ""}
+        />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="notes">Observações</Label>
