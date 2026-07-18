@@ -2,7 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { createRevenue } from "@/lib/actions"
+import {
+  createRevenue,
+  updateRevenue,
+  deleteRevenue,
+} from "@/lib/actions"
 import {
   calculateSplit,
   isCardPayment,
@@ -12,7 +16,8 @@ import type { ClinicBaseMode, PaymentMethod } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { formatBRL, todayISO } from "@/lib/format"
+import { Badge } from "@/components/ui/badge"
+import { formatBRL, formatData, todayISO } from "@/lib/format"
 
 type Settings = {
   clinic_percent: number
@@ -28,12 +33,30 @@ type Treatment = {
   kind?: string
   total_amount?: number
 }
+
 type Installment = {
   id: string
   treatment_id: string
   sequence_number: number
   amount: number
   status: string
+}
+
+export type RevenueRecord = {
+  id: string
+  treatment_id: string | null
+  installment_id: string | null
+  revenue_date: string
+  description: string | null
+  gross_amount: number
+  payment_method: PaymentMethod
+  clinic_percent: number
+  card_fee_percent: number
+  clinic_base_mode: ClinicBaseMode
+  clinic_shares_card_fee: boolean
+  card_fee_amount: number
+  clinic_net_amount: number
+  professional_net_amount: number
 }
 
 function suggestFromCadastro(
@@ -65,14 +88,176 @@ function suggestFromCadastro(
   return { installmentId: "", gross: 0 }
 }
 
-export function RevenueForm({
+export function PatientRevenuePanel({
+  patientId,
+  patientName,
+  treatments,
+  installments,
+  settings,
+  revenues,
+  defaultTreatmentId = "",
+  highlight = false,
+}: {
+  patientId: string
+  patientName: string
+  treatments: Treatment[]
+  installments: Installment[]
+  settings: Settings | null
+  revenues: RevenueRecord[]
+  defaultTreatmentId?: string
+  highlight?: boolean
+}) {
+  const [editing, setEditing] = useState<RevenueRecord | null>(null)
+
+  return (
+    <div
+      id="lancar-receita"
+      className={
+        highlight
+          ? "grid grid-cols-1 gap-6 rounded-xl ring-2 ring-primary/40 ring-offset-2 lg:grid-cols-2"
+          : "grid grid-cols-1 gap-6 lg:grid-cols-2"
+      }
+    >
+      <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+        <div className="px-4 pt-4">
+          <h3 className="text-base font-semibold">
+            {editing
+              ? "Corrigir receita"
+              : highlight
+                ? "Lançar receita deste paciente"
+                : "Nova receita"}
+          </h3>
+          {editing && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Altere só o necessário — não cria outro lançamento.
+            </p>
+          )}
+        </div>
+        <div className="p-4">
+          <RevenueForm
+            key={editing?.id ?? `new-${defaultTreatmentId}`}
+            patientId={patientId}
+            patientName={patientName}
+            treatments={treatments}
+            installments={installments}
+            settings={settings}
+            defaultTreatmentId={defaultTreatmentId}
+            revenue={editing}
+            onCancelEdit={() => setEditing(null)}
+            onSaved={() => setEditing(null)}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+        <div className="px-4 pt-4">
+          <h3 className="text-base font-semibold">Receitas deste paciente</h3>
+        </div>
+        <div className="flex flex-col gap-2 p-4">
+          {revenues.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma receita lançada ainda.
+            </p>
+          ) : (
+            revenues.map((r) => (
+              <RevenueListItem
+                key={r.id}
+                revenue={r}
+                isEditing={editing?.id === r.id}
+                onEdit={() => setEditing(r)}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RevenueListItem({
+  revenue,
+  isEditing,
+  onEdit,
+}: {
+  revenue: RevenueRecord
+  isEditing: boolean
+  onEdit: () => void
+}) {
+  const router = useRouter()
+  const [pending, startTransition] = useTransition()
+
+  return (
+    <div className="rounded-lg border border-border px-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-medium">{revenue.description || "Receita"}</p>
+          <p className="text-xs text-muted-foreground">
+            {formatData(revenue.revenue_date)} ·{" "}
+            {paymentMethodLabel(revenue.payment_method)}
+          </p>
+        </div>
+        <p className="font-semibold">
+          {formatBRL(Number(revenue.gross_amount))}
+        </p>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        <Badge variant="outline">
+          Clínica {formatBRL(Number(revenue.clinic_net_amount))}
+        </Badge>
+        <Badge variant="outline">
+          Você {formatBRL(Number(revenue.professional_net_amount))}
+        </Badge>
+        {Number(revenue.card_fee_amount) > 0 && (
+          <Badge variant="secondary">
+            Cartão {formatBRL(Number(revenue.card_fee_amount))}
+          </Badge>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={isEditing ? "default" : "outline"}
+          onClick={onEdit}
+        >
+          {isEditing ? "Editando…" : "Corrigir"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={pending}
+          onClick={() => {
+            if (
+              !confirm(
+                "Excluir este lançamento? A parcela vinculada volta a pendente, se houver.",
+              )
+            ) {
+              return
+            }
+            startTransition(async () => {
+              await deleteRevenue(revenue.id)
+              router.refresh()
+            })
+          }}
+        >
+          {pending ? "Excluindo…" : "Excluir"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function RevenueForm({
   patientId,
   patientName,
   treatments,
   installments,
   settings,
   defaultTreatmentId = "",
-  redirectTo,
+  revenue,
+  onCancelEdit,
+  onSaved,
 }: {
   patientId: string
   patientName?: string
@@ -80,37 +265,57 @@ export function RevenueForm({
   installments: Installment[]
   settings: Settings | null
   defaultTreatmentId?: string
-  redirectTo?: string
+  revenue?: RevenueRecord | null
+  onCancelEdit?: () => void
+  onSaved?: () => void
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const isEdit = Boolean(revenue)
 
   const initialTreatmentId =
+    revenue?.treatment_id ||
     defaultTreatmentId ||
     treatments.find((t) => t.patient_id === patientId)?.id ||
     ""
-  const initial = suggestFromCadastro(
-    initialTreatmentId,
-    treatments,
-    installments,
-  )
+  const initial = revenue
+    ? {
+        installmentId: revenue.installment_id || "",
+        gross: Number(revenue.gross_amount),
+      }
+    : suggestFromCadastro(initialTreatmentId, treatments, installments)
 
   const [gross, setGross] = useState(initial.gross)
   const [installmentId, setInstallmentId] = useState(initial.installmentId)
-  const [method, setMethod] = useState<PaymentMethod>("pix")
+  const [method, setMethod] = useState<PaymentMethod>(
+    revenue?.payment_method ?? "pix",
+  )
   const [clinicPercent, setClinicPercent] = useState(
-    Number(settings?.clinic_percent ?? 30),
+    Number(revenue?.clinic_percent ?? settings?.clinic_percent ?? 30),
   )
   const [cardPercent, setCardPercent] = useState(
-    Number(settings?.card_fee_percent ?? 3.5),
+    Number(
+      revenue?.card_fee_percent && Number(revenue.card_fee_percent) > 0
+        ? revenue.card_fee_percent
+        : (settings?.card_fee_percent ?? 3.5),
+    ),
   )
   const [baseMode, setBaseMode] = useState<ClinicBaseMode>(
-    settings?.default_clinic_base_mode ?? "without_fee",
+    revenue?.clinic_base_mode ??
+      settings?.default_clinic_base_mode ??
+      "without_fee",
   )
   const [sharesFee, setSharesFee] = useState(
-    settings?.default_clinic_shares_card_fee ?? false,
+    revenue?.clinic_shares_card_fee ??
+      settings?.default_clinic_shares_card_fee ??
+      false,
   )
   const [treatmentId, setTreatmentId] = useState(initialTreatmentId)
+  const [revenueDate, setRevenueDate] = useState(
+    revenue?.revenue_date ?? todayISO(),
+  )
+  const [description, setDescription] = useState(revenue?.description ?? "")
 
   const cardApplies = isCardPayment(method)
 
@@ -130,11 +335,12 @@ export function RevenueForm({
   const patientTreatments = treatments.filter((t) => t.patient_id === patientId)
   const filteredInstallments = installments.filter(
     (i) =>
-      i.status !== "paga" &&
-      (!treatmentId || i.treatment_id === treatmentId),
+      (!treatmentId || i.treatment_id === treatmentId) &&
+      (i.status !== "paga" || i.id === revenue?.installment_id),
   )
 
   function applyCadastroSuggestion(nextTreatmentId: string) {
+    if (isEdit) return
     const suggested = suggestFromCadastro(
       nextTreatmentId,
       treatments,
@@ -174,23 +380,37 @@ export function RevenueForm({
     fd.set("payment_method", method)
     fd.set("clinic_base_mode", usesCard ? baseMode : "without_fee")
     fd.set("gross_amount", String(gross))
+    fd.set("revenue_date", revenueDate)
+    fd.set("description", description)
+    setSaveError(null)
     startTransition(async () => {
-      await createRevenue(fd)
-      if (redirectTo) {
-        router.push(redirectTo)
-      } else {
+      try {
+        if (revenue) {
+          await updateRevenue(revenue.id, fd)
+          onSaved?.()
+        } else {
+          await createRevenue(fd)
+        }
         router.refresh()
+        if (!revenue) {
+          form.reset()
+          const next = suggestFromCadastro(
+            defaultTreatmentId,
+            treatments,
+            installments.filter((i) => i.id !== installmentId),
+          )
+          setGross(next.gross)
+          setInstallmentId(next.installmentId)
+          setMethod("pix")
+          setTreatmentId(defaultTreatmentId || initialTreatmentId)
+          setRevenueDate(todayISO())
+          setDescription("")
+        }
+      } catch (err) {
+        setSaveError(
+          err instanceof Error ? err.message : "Não foi possível salvar a receita.",
+        )
       }
-      form.reset()
-      const next = suggestFromCadastro(
-        defaultTreatmentId,
-        treatments,
-        installments.filter((i) => i.id !== installmentId),
-      )
-      setGross(next.gross)
-      setInstallmentId(next.installmentId)
-      setMethod("pix")
-      setTreatmentId(defaultTreatmentId || initialTreatmentId)
     })
   }
 
@@ -237,6 +457,7 @@ export function RevenueForm({
           {filteredInstallments.map((i) => (
             <option key={i.id} value={i.id}>
               {i.sequence_number}ª · {formatBRL(Number(i.amount))}
+              {i.status === "paga" ? " (atual)" : ""}
             </option>
           ))}
         </select>
@@ -250,7 +471,8 @@ export function RevenueForm({
             name="revenue_date"
             type="date"
             required
-            defaultValue={todayISO()}
+            value={revenueDate}
+            onChange={(e) => setRevenueDate(e.target.value)}
           />
         </div>
         <div className="space-y-1.5">
@@ -264,15 +486,22 @@ export function RevenueForm({
             value={gross || ""}
             onChange={(e) => setGross(Number(e.target.value) || 0)}
           />
-          <p className="text-xs text-muted-foreground">
-            Vem do tratamento/parcela — você pode alterar só neste lançamento.
-          </p>
+          {!isEdit && (
+            <p className="text-xs text-muted-foreground">
+              Vem do tratamento/parcela — você pode alterar só neste lançamento.
+            </p>
+          )}
         </div>
       </div>
 
       <div className="space-y-1.5">
         <Label htmlFor="description">Descrição</Label>
-        <Input id="description" name="description" />
+        <Input
+          id="description"
+          name="description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
       </div>
 
       <div className="space-y-1.5">
@@ -371,12 +600,46 @@ export function RevenueForm({
               profissional {formatBRL(split.professionalFeeShare)}
             </li>
           )}
+          {cardApplies && gross > 0 && (
+            <li className="text-xs">
+              Conferência: clínica + você + cartão ={" "}
+              {formatBRL(
+                split.clinicNetAmount +
+                  split.professionalNetAmount +
+                  split.cardFeeAmount,
+              )}
+            </li>
+          )}
         </ul>
       </div>
 
-      <Button type="submit" disabled={pending || gross <= 0}>
-        {pending ? "Salvando…" : "Lançar receita"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={pending || gross <= 0}>
+          {pending
+            ? "Salvando…"
+            : isEdit
+              ? "Salvar correção"
+              : "Lançar receita"}
+        </Button>
+        {isEdit && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={onCancelEdit}
+          >
+            Cancelar
+          </Button>
+        )}
+      </div>
+      {saveError && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {saveError}
+        </p>
+      )}
     </form>
   )
 }
+
+/** Mantido para usos pontuais fora da ficha do paciente. */
+export { RevenueForm as StandaloneRevenueForm }

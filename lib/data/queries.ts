@@ -4,8 +4,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 export function setupBanner() {
   if (isSupabaseConfigured()) return null
   return {
-    title: "Supabase ainda não conectado",
-    body: "Preencha NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY no .env.local, depois rode as migrations (supabase db push).",
+    title: "Supabase desconectado — dados NÃO estão sendo salvos",
+    body: "Falta o arquivo .env.local com NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY. Sem isso o app não grava no banco e as informações se perdem ao reiniciar.",
   }
 }
 
@@ -41,13 +41,6 @@ export async function fetchDashboardData(from: string, to: string) {
       bands: [],
     }
   }
-
-  // Remove receitas órfãs de exclusões antigas (patient_id null)
-  await supabase
-    .from("revenues")
-    .delete()
-    .eq("user_id", user.id)
-    .is("patient_id", null)
 
   const [
     revenues,

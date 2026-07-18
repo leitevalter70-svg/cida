@@ -15,7 +15,9 @@ import type {
 
 async function getUserId() {
   if (!isSupabaseConfigured()) {
-    throw new Error("Supabase não configurado")
+    throw new Error(
+      "Supabase não configurado (.env.local ausente). Nada foi gravado — reconecte antes de continuar.",
+    )
   }
   const supabase = await createClient()
   const {
@@ -208,13 +210,6 @@ export async function deletePatient(id: string) {
     .eq("user_id", userId)
   if (expError) throw new Error(expError.message)
 
-  // Limpa receitas órfãs de exclusões antigas (patient_id null)
-  await supabase
-    .from("revenues")
-    .delete()
-    .is("patient_id", null)
-    .eq("user_id", userId)
-
   const { error } = await supabase
     .from("patients")
     .delete()
@@ -328,7 +323,121 @@ export async function createTreatment(formData: FormData) {
 
 export async function createRevenue(formData: FormData) {
   const { supabase, userId } = await getUserId()
+  const payload = await buildRevenuePayload(formData, userId, supabase)
 
+  const { error } = await supabase.from("revenues").insert({
+    user_id: userId,
+    ...payload,
+  })
+
+  if (error) throw new Error(error.message)
+
+  const installmentId = payload.installment_id || ""
+  if (installmentId) {
+    await supabase
+      .from("installments")
+      .update({ status: "paga", paid_at: new Date().toISOString().slice(0, 10) })
+      .eq("id", installmentId)
+      .eq("user_id", userId)
+  }
+
+  const patientId = payload.patient_id || ""
+  revalidatePath("/receitas")
+  revalidatePath("/dashboard")
+  revalidatePath("/tratamentos")
+  if (patientId) revalidatePath(`/pacientes/${patientId}`)
+}
+
+export async function updateRevenue(revenueId: string, formData: FormData) {
+  const { supabase, userId } = await getUserId()
+
+  const { data: current, error: currentError } = await supabase
+    .from("revenues")
+    .select("id, installment_id, patient_id")
+    .eq("id", revenueId)
+    .eq("user_id", userId)
+    .single()
+
+  if (currentError || !current) {
+    throw new Error(currentError?.message || "Receita não encontrada")
+  }
+
+  const payload = await buildRevenuePayload(formData, userId, supabase)
+  const { error } = await supabase
+    .from("revenues")
+    .update(payload)
+    .eq("id", revenueId)
+    .eq("user_id", userId)
+
+  if (error) throw new Error(error.message)
+
+  const oldInstallmentId = current.installment_id || ""
+  const newInstallmentId = payload.installment_id || ""
+
+  if (oldInstallmentId && oldInstallmentId !== newInstallmentId) {
+    await supabase
+      .from("installments")
+      .update({ status: "pendente", paid_at: null })
+      .eq("id", oldInstallmentId)
+      .eq("user_id", userId)
+  }
+
+  if (newInstallmentId) {
+    await supabase
+      .from("installments")
+      .update({ status: "paga", paid_at: new Date().toISOString().slice(0, 10) })
+      .eq("id", newInstallmentId)
+      .eq("user_id", userId)
+  }
+
+  const patientId = payload.patient_id || current.patient_id || ""
+  revalidatePath("/receitas")
+  revalidatePath("/dashboard")
+  revalidatePath("/tratamentos")
+  if (patientId) revalidatePath(`/pacientes/${patientId}`)
+}
+
+export async function deleteRevenue(revenueId: string) {
+  const { supabase, userId } = await getUserId()
+
+  const { data: current, error: currentError } = await supabase
+    .from("revenues")
+    .select("id, installment_id, patient_id")
+    .eq("id", revenueId)
+    .eq("user_id", userId)
+    .single()
+
+  if (currentError || !current) {
+    throw new Error(currentError?.message || "Receita não encontrada")
+  }
+
+  const { error } = await supabase
+    .from("revenues")
+    .delete()
+    .eq("id", revenueId)
+    .eq("user_id", userId)
+
+  if (error) throw new Error(error.message)
+
+  if (current.installment_id) {
+    await supabase
+      .from("installments")
+      .update({ status: "pendente", paid_at: null })
+      .eq("id", current.installment_id)
+      .eq("user_id", userId)
+  }
+
+  revalidatePath("/receitas")
+  revalidatePath("/dashboard")
+  revalidatePath("/tratamentos")
+  if (current.patient_id) revalidatePath(`/pacientes/${current.patient_id}`)
+}
+
+async function buildRevenuePayload(
+  formData: FormData,
+  userId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+) {
   const { data: settings } = await supabase
     .from("financial_settings")
     .select("*")
@@ -365,8 +474,7 @@ export async function createRevenue(formData: FormData) {
     clinicSharesCardFee,
   })
 
-  const { error } = await supabase.from("revenues").insert({
-    user_id: userId,
+  return {
     patient_id: (formData.get("patient_id") as string) || null,
     treatment_id: (formData.get("treatment_id") as string) || null,
     installment_id: (formData.get("installment_id") as string) || null,
@@ -387,24 +495,7 @@ export async function createRevenue(formData: FormData) {
     professional_fee_share: split.professionalFeeShare,
     clinic_net_amount: split.clinicNetAmount,
     professional_net_amount: split.professionalNetAmount,
-  })
-
-  if (error) throw new Error(error.message)
-
-  const installmentId = (formData.get("installment_id") as string) || ""
-  if (installmentId) {
-    await supabase
-      .from("installments")
-      .update({ status: "paga", paid_at: new Date().toISOString().slice(0, 10) })
-      .eq("id", installmentId)
-      .eq("user_id", userId)
   }
-
-  const patientId = (formData.get("patient_id") as string) || ""
-  revalidatePath("/receitas")
-  revalidatePath("/dashboard")
-  revalidatePath("/tratamentos")
-  if (patientId) revalidatePath(`/pacientes/${patientId}`)
 }
 
 export async function createExpense(formData: FormData) {

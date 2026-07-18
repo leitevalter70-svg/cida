@@ -18,17 +18,25 @@ export function TreatmentForm({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [patientId, setPatientId] = useState(defaultPatientId)
+  const [error, setError] = useState<string | null>(null)
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = e.currentTarget
     const fd = new FormData(form)
+    setError(null)
     startTransition(async () => {
-      const result = await createTreatment(fd)
-      router.push(
-        `/pacientes/${result.patientId}?lancar=receita&tratamento=${result.id}`,
-      )
-      router.refresh()
+      try {
+        const result = await createTreatment(fd)
+        router.push(
+          `/pacientes/${result.patientId}?lancar=receita&tratamento=${result.id}`,
+        )
+        router.refresh()
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Não foi possível salvar o tratamento.",
+        )
+      }
     })
   }
 
@@ -122,6 +130,11 @@ export function TreatmentForm({
       <Button type="submit" disabled={pending}>
         {pending ? "Salvando…" : "Criar e lançar receita"}
       </Button>
+      {error && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </form>
   )
 }

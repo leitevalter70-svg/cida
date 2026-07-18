@@ -1,4 +1,6 @@
 import { AppSidebar } from "@/components/app-sidebar"
+import { SetupNotice } from "@/components/setup-notice"
+import { isSupabaseConfigured } from "@/lib/supabase/config"
 
 export const dynamic = "force-dynamic"
 
@@ -7,6 +9,24 @@ export default function AppLayout({
 }: {
   children: React.ReactNode
 }) {
+  if (!isSupabaseConfigured()) {
+    return (
+      <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center gap-4 px-5 py-10">
+        <h1 className="text-2xl font-bold text-destructive">
+          App bloqueado — banco desconectado
+        </h1>
+        <SetupNotice />
+        <p className="text-sm text-muted-foreground">
+          Cadastros e lançamentos ficam desativados até o{" "}
+          <code className="rounded bg-secondary px-1">.env.local</code> estar
+          presente. Rode{" "}
+          <code className="rounded bg-secondary px-1">npm run env:check</code>{" "}
+          na pasta do projeto — se existir backup, ele restaura sozinho.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <AppSidebar />

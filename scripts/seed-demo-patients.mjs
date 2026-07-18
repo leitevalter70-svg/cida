@@ -4,6 +4,14 @@ import { resolve } from "path"
 
 const USER_ID = "4b7e7c1a-65fa-47b4-bec2-3f0b762a39ff"
 
+if (process.env.CONFIRM_DEMO_SEED !== "1") {
+  console.error(
+    "ABORTADO: seed apaga só pacientes fictícios, mas exige confirmação.\n" +
+      "Rode com CONFIRM_DEMO_SEED=1 se realmente quiser popular dados de teste.",
+  )
+  process.exit(1)
+}
+
 function loadEnv() {
   const env = {}
   const raw = readFileSync(resolve(".env.local"), "utf8")
@@ -32,12 +40,16 @@ function split({
   const netAfterCard = round2(gross - cardFeeAmount)
   const clinicBaseAmount = baseMode === "with_fee" ? netAfterCard : gross
   const clinicGrossShare = round2((clinicBaseAmount * clinicPct) / 100)
-  const professionalGrossShare = round2(netAfterCard - clinicGrossShare)
+  const professionalGrossShare = round2(gross - clinicGrossShare)
   let clinicFeeShare = 0
-  let professionalFeeShare = cardFeeAmount
-  if (shares && cardFeeAmount > 0) {
-    clinicFeeShare = round2((cardFeeAmount * clinicPct) / 100)
-    professionalFeeShare = round2(cardFeeAmount - clinicFeeShare)
+  let professionalFeeShare = 0
+  if (cardFeeAmount > 0) {
+    if (shares) {
+      clinicFeeShare = round2((cardFeeAmount * clinicPct) / 100)
+      professionalFeeShare = round2(cardFeeAmount - clinicFeeShare)
+    } else {
+      professionalFeeShare = cardFeeAmount
+    }
   }
   return {
     card_fee_amount: cardFeeAmount,

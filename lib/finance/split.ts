@@ -33,7 +33,8 @@ function round2(n: number) {
 
 /**
  * Financial split per PRD §6.1.
- * Base mode and fee-sharing are independent; snapshot on each revenue.
+ * Taxa do cartão entra uma única vez (atribuída à clínica e/ou profissional).
+ * Opções A (base) e B (rateio da taxa) são independentes.
  */
 export function calculateSplit(input: SplitInput): SplitResult {
   const gross = Math.max(0, Number(input.grossAmount) || 0)
@@ -50,17 +51,19 @@ export function calculateSplit(input: SplitInput): SplitResult {
     input.clinicBaseMode === "with_fee" ? netAfterCard : gross
 
   const clinicGrossShare = round2(clinicBaseAmount * clinicPct)
-  const professionalGrossShare = round2(netAfterCard - clinicGrossShare)
+  // Parte da profissional sobre o bruto (a taxa será descontada só depois)
+  const professionalGrossShare = round2(gross - clinicGrossShare)
 
   let clinicFeeShare = 0
-  let professionalFeeShare = cardFeeAmount
-
-  if (input.clinicSharesCardFee && cardFeeAmount > 0) {
-    clinicFeeShare = round2(cardFeeAmount * clinicPct)
-    professionalFeeShare = round2(cardFeeAmount - clinicFeeShare)
-  } else {
-    clinicFeeShare = 0
-    professionalFeeShare = cardFeeAmount
+  let professionalFeeShare = 0
+  if (cardFeeAmount > 0) {
+    if (input.clinicSharesCardFee) {
+      clinicFeeShare = round2(cardFeeAmount * clinicPct)
+      professionalFeeShare = round2(cardFeeAmount - clinicFeeShare)
+    } else {
+      clinicFeeShare = 0
+      professionalFeeShare = cardFeeAmount
+    }
   }
 
   const clinicNetAmount = round2(clinicGrossShare - clinicFeeShare)

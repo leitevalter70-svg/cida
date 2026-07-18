@@ -4,7 +4,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { SetupNotice } from "@/components/setup-notice"
 import { PatientForm } from "@/components/forms/patient-form"
 import { SessionForm } from "@/components/forms/session-form"
-import { RevenueForm } from "@/components/forms/revenue-form"
+import { PatientRevenuePanel } from "@/components/forms/revenue-form"
 import { DeletePatientButton } from "@/components/forms/delete-patient-button"
 import { TreatmentPlannedSessionsForm } from "@/components/forms/treatment-planned-sessions-form"
 import { EvolutionChart } from "@/components/evolution-chart"
@@ -12,8 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
 import { formatBRL, formatData } from "@/lib/format"
-import { paymentMethodLabel } from "@/lib/finance/split"
-import type { PaymentMethod } from "@/lib/types"
+import type { ClinicBaseMode, PaymentMethod } from "@/lib/types"
 import {
   adherencePercent,
   chanceSummary,
@@ -104,7 +103,7 @@ export default async function PacienteDetailPage({
         sequence_number: number
         amount: number
         status: string
-      }[]) ?? []).filter((i) => i.status !== "paga"),
+      }[]) ?? []),
   )
 
   const activeTreatment = treatments?.find((t) => t.status === "ativo")
@@ -246,81 +245,31 @@ export default async function PacienteDetailPage({
         </Card>
       </div>
 
-      <div
-        id="lancar-receita"
-        className={cn(
-          "grid grid-cols-1 gap-6 lg:grid-cols-2",
-          highlightRevenue && "rounded-xl ring-2 ring-primary/40 ring-offset-2",
-        )}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {highlightRevenue ? "Lançar receita deste paciente" : "Nova receita"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RevenueForm
-              key={`${id}-${defaultTreatmentId}`}
-              patientId={patient.id}
-              patientName={patient.full_name}
-              treatments={treatmentOptions}
-              installments={installments}
-              settings={settings}
-              defaultTreatmentId={defaultTreatmentId}
-              redirectTo={`/pacientes/${id}`}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Receitas deste paciente</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {(revenues ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Nenhuma receita lançada ainda.
-              </p>
-            ) : (
-              (revenues ?? []).map((r) => (
-                <div
-                  key={r.id}
-                  className="rounded-lg border border-border px-3 py-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-medium">
-                        {r.description || "Receita"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatData(r.revenue_date)} ·{" "}
-                        {paymentMethodLabel(r.payment_method as PaymentMethod)}
-                      </p>
-                    </div>
-                    <p className="font-semibold">
-                      {formatBRL(Number(r.gross_amount))}
-                    </p>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    <Badge variant="outline">
-                      Clínica {formatBRL(Number(r.clinic_net_amount))}
-                    </Badge>
-                    <Badge variant="outline">
-                      Você {formatBRL(Number(r.professional_net_amount))}
-                    </Badge>
-                    {Number(r.card_fee_amount) > 0 && (
-                      <Badge variant="secondary">
-                        Cartão {formatBRL(Number(r.card_fee_amount))}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <PatientRevenuePanel
+        patientId={patient.id}
+        patientName={patient.full_name}
+        treatments={treatmentOptions}
+        installments={installments}
+        settings={settings}
+        defaultTreatmentId={defaultTreatmentId}
+        highlight={highlightRevenue}
+        revenues={(revenues ?? []).map((r) => ({
+          id: r.id,
+          treatment_id: r.treatment_id,
+          installment_id: r.installment_id,
+          revenue_date: r.revenue_date,
+          description: r.description,
+          gross_amount: Number(r.gross_amount),
+          payment_method: r.payment_method as PaymentMethod,
+          clinic_percent: Number(r.clinic_percent),
+          card_fee_percent: Number(r.card_fee_percent),
+          clinic_base_mode: r.clinic_base_mode as ClinicBaseMode,
+          clinic_shares_card_fee: Boolean(r.clinic_shares_card_fee),
+          card_fee_amount: Number(r.card_fee_amount),
+          clinic_net_amount: Number(r.clinic_net_amount),
+          professional_net_amount: Number(r.professional_net_amount),
+        }))}
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>

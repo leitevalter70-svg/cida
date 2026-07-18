@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/ensure-env.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/ensure-env.mjs",
     "build": "next build",
+    "prestart": "node scripts/ensure-env.mjs",
     "start": "next start",
+    "env:check": "node scripts/ensure-env.mjs",
     "lint": "eslint .",
     "test:finance": "npx tsx lib/finance/split.test.ts",
     "db:push": "supabase db push",

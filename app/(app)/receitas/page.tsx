@@ -13,8 +13,6 @@ export default async function ReceitasPage() {
 
   if (isSupabaseConfigured()) {
     const supabase = await createClient()
-    // Limpa órfãos de exclusões antigas
-    await supabase.from("revenues").delete().is("patient_id", null)
     const { data } = await supabase
       .from("revenues")
       .select("*, patients!inner(full_name)")

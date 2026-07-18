@@ -1,6 +1,6 @@
 "use client"
 
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { createSession } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +26,7 @@ export function SessionForm({
   defaultComplaint?: string | null
 }) {
   const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
   const active = treatments.filter((t) => t.status === "ativo")
   const defaultTreatmentId = active[0]?.id ?? ""
   const options = resolveComplaintOptions(
@@ -37,9 +38,16 @@ export function SessionForm({
     e.preventDefault()
     const form = e.currentTarget
     const fd = new FormData(form)
+    setError(null)
     startTransition(async () => {
-      await createSession(fd)
-      form.reset()
+      try {
+        await createSession(fd)
+        form.reset()
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Não foi possível salvar a sessão.",
+        )
+      }
     })
   }
 
@@ -147,6 +155,11 @@ export function SessionForm({
       <Button type="submit" disabled={pending}>
         {pending ? "Salvando…" : "Registrar sessão"}
       </Button>
+      {error && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </form>
   )
 }
