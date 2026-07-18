@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  Activity,
   LayoutDashboard,
   HeartPulse,
   Wallet,
@@ -16,6 +15,7 @@ import {
 import { cn } from "@/lib/utils"
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
+import { PhysioSymbol } from "@/components/physio-symbol"
 
 const itens = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -43,13 +43,15 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="flex shrink-0 flex-col border-border bg-sidebar md:h-dvh md:w-64 md:border-r">
-      <div className="flex items-center gap-3 border-b border-border px-5 py-5">
-        <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <Activity className="size-5" />
+    <aside className="flex shrink-0 flex-col border-border bg-sidebar md:h-dvh md:w-64 md:border-r md:bg-gradient-to-b md:from-sidebar md:to-secondary/40">
+      <div className="flex items-center gap-3 border-b border-border/80 px-5 py-5">
+        <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm shadow-primary/25">
+          <PhysioSymbol className="size-6" solid />
         </div>
         <div className="leading-tight">
-          <p className="text-sm font-bold text-foreground">Cida</p>
+          <p className="text-base font-bold tracking-tight text-foreground">
+            Cida
+          </p>
           <p className="text-xs text-muted-foreground">Fisioterapia</p>
         </div>
       </div>
@@ -64,9 +66,9 @@ export function AppSidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium whitespace-nowrap transition-colors",
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium whitespace-nowrap transition-colors",
                 ativo
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground",
               )}
             >
@@ -77,8 +79,8 @@ export function AppSidebar() {
         })}
       </nav>
 
-      <div className="mt-auto hidden space-y-3 border-t border-border px-5 py-4 md:block">
-        <p className="text-xs text-muted-foreground">
+      <div className="mt-auto hidden space-y-3 border-t border-border/80 px-5 py-4 md:block">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           Saúde da mulher · assoalho pélvico
         </p>
         <Button

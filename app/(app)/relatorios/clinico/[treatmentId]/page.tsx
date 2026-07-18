@@ -10,6 +10,7 @@ import {
 } from "@/components/clinical-pdf"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { PhysioSymbol } from "@/components/physio-symbol"
 import { formatData } from "@/lib/format"
 import { EvolutionChart } from "@/components/evolution-chart"
 import { complaintLabel } from "@/lib/clinical/complaints"
@@ -235,22 +236,34 @@ export default async function RelatorioClinicoPage({
       <div>
         <Link
           href={`/pacientes/${treatment.patient_id}`}
-          className="text-sm text-muted-foreground hover:underline"
+          className="text-sm text-muted-foreground hover:text-foreground hover:underline"
         >
           ← Voltar à ficha
         </Link>
-        <h1 className="mt-1 text-2xl font-bold">Relatório clínico</h1>
-        <p className="text-sm text-muted-foreground">
-          Para a paciente · sem dados financeiros
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Badge variant="secondary">{patient.full_name}</Badge>
-          <Badge variant="outline">{treatment.protocol_name}</Badge>
+        <div className="mt-3 flex items-start gap-3">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm shadow-primary/25">
+            <PhysioSymbol className="size-7" solid />
+          </div>
+          <div>
+            <p className="text-xs font-medium tracking-wide text-primary uppercase">
+              Fisioterapia
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Relatório clínico
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Para a paciente · sem dados financeiros
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Badge variant="secondary">{patient.full_name}</Badge>
+              <Badge variant="outline">{treatment.protocol_name}</Badge>
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="border-border/80 shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Dados da paciente</CardTitle>
           </CardHeader>
@@ -304,7 +317,7 @@ export default async function RelatorioClinicoPage({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-border/80 shadow-none">
           <CardHeader>
             <CardTitle className="text-base">Resumo do tratamento</CardTitle>
           </CardHeader>

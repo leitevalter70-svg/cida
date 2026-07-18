@@ -232,14 +232,14 @@ export function DashboardClient({ from, to, data }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-balance">Dashboard</h1>
+          <h2 className="text-lg font-semibold tracking-tight">Visão do período</h2>
           <p className="text-sm text-muted-foreground">
-            Período {formatData(from)} — {formatData(to)}
+            {formatData(from)} — {formatData(to)}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 rounded-xl bg-secondary/60 p-1">
           {(
             [
               ["unificada", "Unificada"],
@@ -250,7 +250,8 @@ export function DashboardClient({ from, to, data }: Props) {
             <Button
               key={id}
               size="sm"
-              variant={view === id ? "default" : "outline"}
+              variant={view === id ? "default" : "ghost"}
+              className={view === id ? "shadow-sm" : undefined}
               onClick={() => setView(id)}
             >
               {label}
@@ -277,10 +278,15 @@ export function DashboardClient({ from, to, data }: Props) {
                 value: formatBRL(financial.cardFee),
               },
             ].map((c) => (
-              <Card key={c.label}>
-                <CardContent className="p-5">
+              <Card
+                key={c.label}
+                className="border-border/80 bg-gradient-to-br from-card to-secondary/30 shadow-none"
+              >
+                <CardContent className="border-l-[3px] border-l-primary p-5">
                   <p className="text-sm text-muted-foreground">{c.label}</p>
-                  <p className="mt-1 text-2xl font-bold">{c.value}</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight">
+                    {c.value}
+                  </p>
                 </CardContent>
               </Card>
             ))}
@@ -423,10 +429,15 @@ export function DashboardClient({ from, to, data }: Props) {
               },
               { label: "Altas", value: String(clinical.alta) },
             ].map((c) => (
-              <Card key={c.label}>
-                <CardContent className="p-5">
+              <Card
+                key={c.label}
+                className="border-border/80 bg-gradient-to-br from-card to-secondary/30 shadow-none"
+              >
+                <CardContent className="border-l-[3px] border-l-primary p-5">
                   <p className="text-sm text-muted-foreground">{c.label}</p>
-                  <p className="mt-1 text-2xl font-bold">{c.value}</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight">
+                    {c.value}
+                  </p>
                 </CardContent>
               </Card>
             ))}
@@ -556,9 +567,9 @@ function ChartCard({
   children: React.ReactNode
 }) {
   return (
-    <Card className="animate-in fade-in duration-500">
+    <Card className="animate-in fade-in border-border/80 shadow-none duration-500">
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle className="text-base tracking-tight">{title}</CardTitle>
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
@@ -567,7 +578,7 @@ function ChartCard({
 
 function EmptyChart({ message }: { message: string }) {
   return (
-    <Card>
+    <Card className="border-border/80 border-dashed shadow-none">
       <CardContent className="flex h-40 items-center justify-center p-5 text-sm text-muted-foreground">
         {message}
       </CardContent>

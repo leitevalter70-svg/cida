@@ -7,8 +7,14 @@ import {
   View,
   StyleSheet,
   pdf,
+  Svg,
+  Path,
+  Circle,
 } from "@react-pdf/renderer"
 import { Button } from "@/components/ui/button"
+import { PHYSIO_SYMBOL_PATHS } from "@/components/physio-symbol"
+
+const BRAND = "#2a6f77"
 
 const styles = StyleSheet.create({
   page: {
@@ -17,14 +23,49 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica",
     color: "#1f2a2e",
   },
-  title: { fontSize: 18, marginBottom: 4, fontFamily: "Helvetica-Bold" },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1.5,
+    borderBottomColor: "#d5e0e0",
+  },
+  brandIcon: {
+    width: 36,
+    height: 36,
+    marginRight: 10,
+    backgroundColor: BRAND,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  brandText: {
+    flexDirection: "column",
+  },
+  brandName: {
+    fontSize: 13,
+    fontFamily: "Helvetica-Bold",
+    color: BRAND,
+  },
+  brandTag: {
+    fontSize: 9,
+    color: "#5a6b70",
+    marginTop: 2,
+  },
+  title: {
+    fontSize: 18,
+    marginBottom: 4,
+    fontFamily: "Helvetica-Bold",
+    color: "#1f2a2e",
+  },
   subtitle: { fontSize: 10, color: "#5a6b70", marginBottom: 16 },
   section: { marginTop: 14, marginBottom: 4 },
   heading: {
     fontSize: 12,
     fontFamily: "Helvetica-Bold",
     marginBottom: 6,
-    color: "#2a6f77",
+    color: BRAND,
   },
   row: { marginBottom: 4, lineHeight: 1.4 },
   label: { fontFamily: "Helvetica-Bold" },
@@ -62,6 +103,42 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 })
+
+function PhysioSymbolPdf() {
+  const p = PHYSIO_SYMBOL_PATHS
+  return (
+    <View style={styles.brandIcon}>
+      <Svg viewBox="0 0 48 48" width={26} height={26}>
+        <Path
+          d={p.staff}
+          stroke="#ffffff"
+          strokeWidth={2.8}
+          strokeLinecap="round"
+        />
+        <Circle cx={p.head.cx} cy={p.head.cy} r={p.head.r} fill="#ffffff" />
+        <Path d={p.torso} fill="#ffffff" />
+        <Path
+          d={p.armsLeft}
+          stroke="#ffffff"
+          strokeWidth={2.4}
+          strokeLinecap="round"
+        />
+        <Path
+          d={p.armsRight}
+          stroke="#ffffff"
+          strokeWidth={2.4}
+          strokeLinecap="round"
+        />
+        <Path
+          d={p.base}
+          stroke="#ffffff"
+          strokeWidth={2.4}
+          strokeLinecap="round"
+        />
+      </Svg>
+    </View>
+  )
+}
 
 export type ClinicalPdfSession = {
   date: string
@@ -122,6 +199,14 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
   return (
     <Document>
       <Page size="A4" style={styles.page} wrap>
+        <View style={styles.brandRow}>
+          <PhysioSymbolPdf />
+          <View style={styles.brandText}>
+            <Text style={styles.brandName}>Cida</Text>
+            <Text style={styles.brandTag}>Fisioterapia · saúde da mulher</Text>
+          </View>
+        </View>
+
         <Text style={styles.title}>Relatório clínico</Text>
         <Text style={styles.subtitle}>
           Documento exclusivo para a paciente — sem informações financeiras
