@@ -55,8 +55,27 @@ function ensureBackup(fromPath) {
   copyFileSync(fromPath, backupPath)
 }
 
+function envFromProcess() {
+  const env = {}
+  for (const key of REQUIRED) {
+    if (process.env[key]) env[key] = process.env[key]
+  }
+  return env
+}
+
 function main() {
   let restored = false
+
+  // No Vercel (e CI), as variáveis vêm do painel — não há .env.local no repo.
+  if (process.env.VERCEL || process.env.CI) {
+    const err = validate(envFromProcess(), "variáveis de ambiente (Vercel/CI)")
+    if (err) {
+      console.error(`\n[cida] ERRO: ${err}\n`)
+      process.exit(1)
+    }
+    console.log("[cida] Variáveis de ambiente OK (Vercel/CI)")
+    return
+  }
 
   if (!existsSync(envPath) && existsSync(backupPath)) {
     copyFileSync(backupPath, envPath)
