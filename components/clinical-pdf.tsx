@@ -40,6 +40,21 @@ const styles = StyleSheet.create({
     color: "#5a6b70",
     lineHeight: 1.4,
   },
+  signature: {
+    marginTop: 28,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#d5e0e0",
+  },
+  signatureName: {
+    fontSize: 11,
+    fontFamily: "Helvetica-Bold",
+    marginBottom: 2,
+  },
+  signatureMeta: {
+    fontSize: 10,
+    color: "#5a6b70",
+  },
   box: {
     backgroundColor: "#f3f7f7",
     padding: 10,
@@ -82,6 +97,8 @@ export type ClinicalPdfData = {
   synthesis: string | null
   maintenance: string | null
   disclaimer: string
+  professionalName: string
+  crefitoLine: string
   sessions: ClinicalPdfSession[]
 }
 
@@ -195,6 +212,12 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
         </View>
 
         <Text style={styles.disclaimer}>{data.disclaimer}</Text>
+
+        <View style={styles.signature}>
+          <Text style={styles.signatureName}>{data.professionalName}</Text>
+          <Text style={styles.signatureMeta}>{data.crefitoLine}</Text>
+          <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
+        </View>
       </Page>
     </Document>
   )

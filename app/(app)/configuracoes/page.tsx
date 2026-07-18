@@ -50,7 +50,8 @@ export default async function ConfiguracoesPage() {
       <div>
         <h1 className="text-2xl font-bold">Configurações</h1>
         <p className="text-sm text-muted-foreground">
-          Percentuais, catálogo de aparelhos e textos do relatório clínico
+          Percentuais, credenciais (nome/CREFITO), catálogo de aparelhos e
+          textos do relatório clínico
         </p>
       </div>
 

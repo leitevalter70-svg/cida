@@ -18,12 +18,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { formatBRL, formatData, todayISO } from "@/lib/format"
+import { computeSettledAt } from "@/lib/professional"
+import { DownloadReceiptButton } from "@/components/receipt-pdf"
 
 type Settings = {
   clinic_percent: number
   card_fee_percent: number
   default_clinic_base_mode: ClinicBaseMode
   default_clinic_shares_card_fee: boolean
+  card_credit_settlement_days?: number
 }
 
 type Treatment = {
@@ -47,6 +50,7 @@ export type RevenueRecord = {
   treatment_id: string | null
   installment_id: string | null
   revenue_date: string
+  settled_at: string
   description: string | null
   gross_amount: number
   payment_method: PaymentMethod
@@ -57,6 +61,11 @@ export type RevenueRecord = {
   card_fee_amount: number
   clinic_net_amount: number
   professional_net_amount: number
+}
+
+type ProfessionalInfo = {
+  professionalName: string
+  crefito: string
 }
 
 function suggestFromCadastro(
@@ -95,6 +104,7 @@ export function PatientRevenuePanel({
   installments,
   settings,
   revenues,
+  professional,
   defaultTreatmentId = "",
   highlight = false,
 }: {
@@ -104,6 +114,7 @@ export function PatientRevenuePanel({
   installments: Installment[]
   settings: Settings | null
   revenues: RevenueRecord[]
+  professional: ProfessionalInfo
   defaultTreatmentId?: string
   highlight?: boolean
 }) {
@@ -163,6 +174,8 @@ export function PatientRevenuePanel({
               <RevenueListItem
                 key={r.id}
                 revenue={r}
+                patientName={patientName}
+                professional={professional}
                 isEditing={editing?.id === r.id}
                 onEdit={() => setEditing(r)}
               />
@@ -176,10 +189,14 @@ export function PatientRevenuePanel({
 
 function RevenueListItem({
   revenue,
+  patientName,
+  professional,
   isEditing,
   onEdit,
 }: {
   revenue: RevenueRecord
+  patientName: string
+  professional: ProfessionalInfo
   isEditing: boolean
   onEdit: () => void
 }) {
@@ -192,7 +209,8 @@ function RevenueListItem({
         <div>
           <p className="font-medium">{revenue.description || "Receita"}</p>
           <p className="text-xs text-muted-foreground">
-            {formatData(revenue.revenue_date)} ·{" "}
+            Pagamento {formatData(revenue.revenue_date)} · Recebimento{" "}
+            {formatData(revenue.settled_at)} ·{" "}
             {paymentMethodLabel(revenue.payment_method)}
           </p>
         </div>
@@ -214,6 +232,18 @@ function RevenueListItem({
         )}
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
+        <DownloadReceiptButton
+          data={{
+            patientName,
+            revenueDate: formatData(revenue.revenue_date),
+            settledAt: formatData(revenue.settled_at),
+            paymentMethodLabel: paymentMethodLabel(revenue.payment_method),
+            description: revenue.description,
+            grossAmountLabel: formatBRL(Number(revenue.gross_amount)),
+            professionalName: professional.professionalName,
+            crefito: professional.crefito,
+          }}
+        />
         <Button
           type="button"
           size="sm"
@@ -315,9 +345,25 @@ function RevenueForm({
   const [revenueDate, setRevenueDate] = useState(
     revenue?.revenue_date ?? todayISO(),
   )
+  const creditDays = settings?.card_credit_settlement_days ?? 30
+  const [settledAt, setSettledAt] = useState(
+    revenue?.settled_at ??
+      computeSettledAt(
+        revenue?.revenue_date ?? todayISO(),
+        revenue?.payment_method ?? "pix",
+        creditDays,
+      ),
+  )
+  const [settledManual, setSettledManual] = useState(false)
   const [description, setDescription] = useState(revenue?.description ?? "")
 
   const cardApplies = isCardPayment(method)
+
+  function syncSettledAt(nextDate: string, nextMethod: PaymentMethod) {
+    if (!settledManual) {
+      setSettledAt(computeSettledAt(nextDate, nextMethod, creditDays))
+    }
+  }
 
   const split = useMemo(
     () =>
@@ -381,6 +427,8 @@ function RevenueForm({
     fd.set("clinic_base_mode", usesCard ? baseMode : "without_fee")
     fd.set("gross_amount", String(gross))
     fd.set("revenue_date", revenueDate)
+    fd.set("settled_at", settledAt)
+    fd.set("card_credit_settlement_days", String(creditDays))
     fd.set("description", description)
     setSaveError(null)
     startTransition(async () => {
@@ -404,6 +452,8 @@ function RevenueForm({
           setMethod("pix")
           setTreatmentId(defaultTreatmentId || initialTreatmentId)
           setRevenueDate(todayISO())
+          setSettledManual(false)
+          setSettledAt(computeSettledAt(todayISO(), "pix", creditDays))
           setDescription("")
         }
       } catch (err) {
@@ -465,33 +515,55 @@ function RevenueForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="revenue_date">Data</Label>
+          <Label htmlFor="revenue_date">Data do pagamento</Label>
           <Input
             id="revenue_date"
             name="revenue_date"
             type="date"
             required
             value={revenueDate}
-            onChange={(e) => setRevenueDate(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value
+              setRevenueDate(next)
+              syncSettledAt(next, method)
+            }}
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="gross_amount">Valor bruto (R$)</Label>
+          <Label htmlFor="settled_at">Data do recebimento</Label>
           <Input
-            id="gross_amount"
-            type="number"
-            step="0.01"
-            min={0}
+            id="settled_at"
+            name="settled_at"
+            type="date"
             required
-            value={gross || ""}
-            onChange={(e) => setGross(Number(e.target.value) || 0)}
+            value={settledAt}
+            onChange={(e) => {
+              setSettledManual(true)
+              setSettledAt(e.target.value)
+            }}
           />
-          {!isEdit && (
-            <p className="text-xs text-muted-foreground">
-              Vem do tratamento/parcela — você pode alterar só neste lançamento.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            Crédito: +{creditDays} dias (prestação de contas).
+          </p>
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="gross_amount">Valor bruto (R$)</Label>
+        <Input
+          id="gross_amount"
+          type="number"
+          step="0.01"
+          min={0}
+          required
+          value={gross || ""}
+          onChange={(e) => setGross(Number(e.target.value) || 0)}
+        />
+        {!isEdit && (
+          <p className="text-xs text-muted-foreground">
+            Vem do tratamento/parcela — você pode alterar só neste lançamento.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -510,7 +582,11 @@ function RevenueForm({
           id="payment_method"
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
           value={method}
-          onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+          onChange={(e) => {
+            const next = e.target.value as PaymentMethod
+            setMethod(next)
+            syncSettledAt(revenueDate, next)
+          }}
         >
           {(
             ["pix", "dinheiro", "debito", "credito", "outro"] as PaymentMethod[]

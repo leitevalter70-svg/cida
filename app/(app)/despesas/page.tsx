@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { SetupNotice } from "@/components/setup-notice"
@@ -40,7 +41,10 @@ export default async function DespesasPage() {
         <div>
           <h1 className="text-2xl font-bold">Despesas</h1>
           <p className="text-sm text-muted-foreground">
-            Prestação de contas à clínica
+            Lançamentos para a{" "}
+            <Link href="/prestacao" className="text-primary underline">
+              prestação de contas
+            </Link>
           </p>
         </div>
         <p className="text-sm font-medium">Total listado: {formatBRL(total)}</p>

@@ -21,6 +21,7 @@ import {
   complaintLabel,
   resolveComplaintOptions,
 } from "@/lib/clinical/complaints"
+import { resolveCredentials } from "@/lib/professional"
 import { cn } from "@/lib/utils"
 import { notFound } from "next/navigation"
 
@@ -63,6 +64,7 @@ export default async function PacienteDetailPage({
     { data: settings },
     { data: reports },
     { data: revenues },
+    { data: reportDefaults },
   ] = await Promise.all([
     supabase
       .from("sessions")
@@ -93,6 +95,7 @@ export default async function PacienteDetailPage({
       .select("*")
       .eq("patient_id", id)
       .order("revenue_date", { ascending: false }),
+    supabase.from("report_defaults").select("*").maybeSingle(),
   ])
 
   const installments = (treatments ?? []).flatMap(
@@ -157,6 +160,8 @@ export default async function PacienteDetailPage({
     kind: t.kind as string,
     total_amount: Number(t.total_amount),
   }))
+
+  const credentials = resolveCredentials(reportDefaults)
 
   return (
     <div className="flex flex-col gap-6">
@@ -253,11 +258,13 @@ export default async function PacienteDetailPage({
         settings={settings}
         defaultTreatmentId={defaultTreatmentId}
         highlight={highlightRevenue}
+        professional={credentials}
         revenues={(revenues ?? []).map((r) => ({
           id: r.id,
           treatment_id: r.treatment_id,
           installment_id: r.installment_id,
           revenue_date: r.revenue_date,
+          settled_at: r.settled_at || r.revenue_date,
           description: r.description,
           gross_amount: Number(r.gross_amount),
           payment_method: r.payment_method as PaymentMethod,

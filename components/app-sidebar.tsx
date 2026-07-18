@@ -11,6 +11,7 @@ import {
   Package,
   Settings,
   LogOut,
+  ClipboardList,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
@@ -22,6 +23,7 @@ const itens = [
   { href: "/tratamentos", label: "Tratamentos", icon: Package },
   { href: "/receitas", label: "Receitas", icon: Wallet },
   { href: "/despesas", label: "Despesas", icon: Receipt },
+  { href: "/prestacao", label: "Prestação", icon: ClipboardList },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ]
 

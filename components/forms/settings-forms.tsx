@@ -21,6 +21,7 @@ export function FinancialSettingsForm({
     default_clinic_base_mode: string
     default_clinic_shares_card_fee: boolean
     clinical_chance_indicator_enabled: boolean
+    card_credit_settlement_days?: number
   } | null
 }) {
   const [pending, startTransition] = useTransition()
@@ -76,6 +77,23 @@ export function FinancialSettingsForm({
         </div>
       </div>
       <div className="space-y-1.5">
+        <Label htmlFor="card_credit_settlement_days">
+          Dias para receber crédito
+        </Label>
+        <Input
+          id="card_credit_settlement_days"
+          name="card_credit_settlement_days"
+          type="number"
+          min={0}
+          max={120}
+          defaultValue={settings?.card_credit_settlement_days ?? 30}
+          required
+        />
+        <p className="text-xs text-muted-foreground">
+          Usado na data de recebimento da prestação de contas (padrão 30 dias).
+        </p>
+      </div>
+      <div className="space-y-1.5">
         <Label htmlFor="default_clinic_base_mode">
           Base padrão do % clínica
         </Label>
@@ -120,6 +138,8 @@ export function ReportDefaultsForm({
   defaults: {
     disclaimer_text: string
     maintenance_guidance_text: string
+    professional_name?: string
+    crefito?: string
   } | null
 }) {
   const [pending, startTransition] = useTransition()
@@ -134,6 +154,29 @@ export function ReportDefaultsForm({
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-3">
+      <div className="space-y-1.5">
+        <Label htmlFor="professional_name">Nome da profissional</Label>
+        <Input
+          id="professional_name"
+          name="professional_name"
+          defaultValue={
+            defaults?.professional_name ?? "Maria Apárecida S. Leite"
+          }
+          required
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="crefito">CREFITO</Label>
+        <Input
+          id="crefito"
+          name="crefito"
+          defaultValue={defaults?.crefito ?? "82810F"}
+          required
+        />
+        <p className="text-xs text-muted-foreground">
+          Aparece no relatório clínico, recibo e prestação de contas.
+        </p>
+      </div>
       <div className="space-y-1.5">
         <Label htmlFor="disclaimer_text">Disclaimer do relatório</Label>
         <Textarea

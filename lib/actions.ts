@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { calculateSplit, isCardPayment } from "@/lib/finance/split"
 import { adherencePercent } from "@/lib/clinical/chance"
+import {
+  computeSettledAt,
+  DEFAULT_CREFITO,
+  DEFAULT_PROFESSIONAL_NAME,
+} from "@/lib/professional"
 import type {
   ClinicBaseMode,
   PaymentMethod,
@@ -345,6 +350,7 @@ export async function createRevenue(formData: FormData) {
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
+  revalidatePath("/prestacao")
   if (patientId) revalidatePath(`/pacientes/${patientId}`)
 }
 
@@ -394,6 +400,7 @@ export async function updateRevenue(revenueId: string, formData: FormData) {
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
+  revalidatePath("/prestacao")
   if (patientId) revalidatePath(`/pacientes/${patientId}`)
 }
 
@@ -430,6 +437,7 @@ export async function deleteRevenue(revenueId: string) {
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
+  revalidatePath("/prestacao")
   if (current.patient_id) revalidatePath(`/pacientes/${current.patient_id}`)
 }
 
@@ -474,12 +482,25 @@ async function buildRevenuePayload(
     clinicSharesCardFee,
   })
 
+  const revenueDate = String(formData.get("revenue_date"))
+  const creditDays = Number(
+    formData.get("card_credit_settlement_days") ??
+      settings?.card_credit_settlement_days ??
+      30,
+  )
+  const settledFromForm = formData.get("settled_at")
+  const settledAt =
+    settledFromForm && String(settledFromForm).trim()
+      ? String(settledFromForm)
+      : computeSettledAt(revenueDate, paymentMethod, creditDays)
+
   return {
     patient_id: (formData.get("patient_id") as string) || null,
     treatment_id: (formData.get("treatment_id") as string) || null,
     installment_id: (formData.get("installment_id") as string) || null,
     session_id: (formData.get("session_id") as string) || null,
-    revenue_date: String(formData.get("revenue_date")),
+    revenue_date: revenueDate,
+    settled_at: settledAt,
     description: (formData.get("description") as string) || null,
     gross_amount: grossAmount,
     payment_method: paymentMethod,
@@ -510,6 +531,7 @@ export async function createExpense(formData: FormData) {
   })
   if (error) throw new Error(error.message)
   revalidatePath("/despesas")
+  revalidatePath("/prestacao")
   revalidatePath("/dashboard")
 }
 
@@ -533,6 +555,9 @@ export async function updateFinancialSettings(formData: FormData) {
   const clinicalChanceIndicatorEnabled =
     formData.get("clinical_chance_indicator_enabled") === "true" ||
     formData.get("clinical_chance_indicator_enabled") === "on"
+  const cardCreditSettlementDays = Number(
+    formData.get("card_credit_settlement_days") ?? 30,
+  )
 
   if (current) {
     const historyRows: {
@@ -558,6 +583,17 @@ export async function updateFinancialSettings(formData: FormData) {
         new_value: String(cardFeePercent),
       })
     }
+    if (
+      Number(current.card_credit_settlement_days ?? 30) !==
+      cardCreditSettlementDays
+    ) {
+      historyRows.push({
+        user_id: userId,
+        field_name: "card_credit_settlement_days",
+        old_value: String(current.card_credit_settlement_days ?? 30),
+        new_value: String(cardCreditSettlementDays),
+      })
+    }
     if (historyRows.length) {
       await supabase.from("financial_settings_history").insert(historyRows)
     }
@@ -571,12 +607,15 @@ export async function updateFinancialSettings(formData: FormData) {
       default_clinic_base_mode: defaultClinicBaseMode,
       default_clinic_shares_card_fee: defaultClinicSharesCardFee,
       clinical_chance_indicator_enabled: clinicalChanceIndicatorEnabled,
+      card_credit_settlement_days: cardCreditSettlementDays,
     },
     { onConflict: "user_id" },
   )
 
   if (error) throw new Error(error.message)
   revalidatePath("/configuracoes")
+  revalidatePath("/prestacao")
+  revalidatePath("/receitas")
 }
 
 export async function updateReportDefaults(formData: FormData) {
@@ -588,11 +627,18 @@ export async function updateReportDefaults(formData: FormData) {
       maintenance_guidance_text: String(
         formData.get("maintenance_guidance_text") || "",
       ),
+      professional_name:
+        String(formData.get("professional_name") || "").trim() ||
+        DEFAULT_PROFESSIONAL_NAME,
+      crefito:
+        String(formData.get("crefito") || "").trim() || DEFAULT_CREFITO,
     },
     { onConflict: "user_id" },
   )
   if (error) throw new Error(error.message)
   revalidatePath("/configuracoes")
+  revalidatePath("/prestacao")
+  revalidatePath("/receitas")
 }
 
 export async function upsertDevice(formData: FormData) {

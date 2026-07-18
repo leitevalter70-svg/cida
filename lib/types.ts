@@ -34,6 +34,7 @@ export type FinancialSettings = {
   default_clinic_base_mode: ClinicBaseMode
   default_clinic_shares_card_fee: boolean
   clinical_chance_indicator_enabled: boolean
+  card_credit_settlement_days: number
 }
 
 export type Patient = {
@@ -111,6 +112,7 @@ export type Revenue = {
   installment_id: string | null
   session_id: string | null
   revenue_date: string
+  settled_at: string
   description: string | null
   gross_amount: number
   payment_method: PaymentMethod
@@ -166,6 +168,8 @@ export type ReportDefaults = {
   user_id: string
   disclaimer_text: string
   maintenance_guidance_text: string
+  professional_name: string
+  crefito: string
 }
 
 export type ClinicalReport = {

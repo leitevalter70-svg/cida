@@ -38,6 +38,8 @@ create table public.financial_settings (
   default_clinic_base_mode public.clinic_base_mode not null default 'without_fee',
   default_clinic_shares_card_fee boolean not null default false,
   clinical_chance_indicator_enabled boolean not null default true,
+  card_credit_settlement_days integer not null default 30
+    check (card_credit_settlement_days >= 0 and card_credit_settlement_days <= 120),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -71,7 +73,7 @@ create table public.clinical_chance_bands (
   unique (user_id, complaint_type)
 );
 
--- Report defaults (disclaimer + maintenance guidance)
+-- Report defaults (disclaimer + maintenance guidance + credentials)
 create table public.report_defaults (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique references public.profiles (id) on delete cascade,
@@ -79,6 +81,8 @@ create table public.report_defaults (
     'Esta estimativa é baseada em faixas populacionais da literatura científica. Não constitui garantia de cura individual. Elaborado pela fisioterapeuta responsável.',
   maintenance_guidance_text text not null default
     'Continue os exercícios de assoalho pélvico em casa conforme orientação. Retorne se houver piora dos sintomas.',
+  professional_name text not null default 'Maria Apárecida S. Leite',
+  crefito text not null default '82810F',
   updated_at timestamptz not null default now()
 );
 
@@ -205,6 +209,7 @@ create table public.revenues (
   installment_id uuid references public.installments (id) on delete set null,
   session_id uuid references public.sessions (id) on delete set null,
   revenue_date date not null default current_date,
+  settled_at date not null default current_date,
   description text,
   gross_amount numeric(12, 2) not null check (gross_amount >= 0),
   payment_method public.payment_method not null default 'pix',
@@ -227,6 +232,7 @@ create table public.revenues (
 );
 
 create index revenues_user_date_idx on public.revenues (user_id, revenue_date desc);
+create index revenues_settled_at_idx on public.revenues (user_id, settled_at);
 create index revenues_patient_idx on public.revenues (patient_id);
 
 -- Expenses

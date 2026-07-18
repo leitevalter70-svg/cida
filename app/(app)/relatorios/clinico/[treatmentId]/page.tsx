@@ -14,6 +14,10 @@ import { formatData } from "@/lib/format"
 import { EvolutionChart } from "@/components/evolution-chart"
 import { complaintLabel } from "@/lib/clinical/complaints"
 import { adherencePercent } from "@/lib/clinical/chance"
+import {
+  formatCrefitoLine,
+  resolveCredentials,
+} from "@/lib/professional"
 
 const SEX_LABELS: Record<string, string> = {
   feminino: "Feminino",
@@ -166,6 +170,8 @@ export default async function RelatorioClinicoPage({
     ) ||
     `Adesão neste tratamento: ${adherence}%.`
 
+  const credentials = resolveCredentials(defaults)
+
   const pdfSessions =
     sessions?.map((s) => {
       const deviceNames =
@@ -218,6 +224,8 @@ export default async function RelatorioClinicoPage({
     disclaimer:
       defaults?.disclaimer_text ||
       "Estimativa populacional; não é garantia de cura.",
+    professionalName: credentials.professionalName,
+    crefitoLine: formatCrefitoLine(credentials.crefito),
     sessions: pdfSessions,
   }
 
@@ -424,8 +432,10 @@ export default async function RelatorioClinicoPage({
           />
           <DownloadClinicalPdfButton data={pdfData} />
           <p className="text-xs text-muted-foreground">
-            O PDF inclui todos os dados clínicos da paciente e das sessões.
-            Não inclui valores, parcelas, % da clínica nem taxa de cartão.
+            O PDF inclui identificação da profissional (
+            {credentials.professionalName} ·{" "}
+            {formatCrefitoLine(credentials.crefito)}). Não inclui valores,
+            parcelas, % da clínica nem taxa de cartão.
           </p>
         </CardContent>
       </Card>

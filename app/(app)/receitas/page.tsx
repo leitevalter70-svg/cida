@@ -6,18 +6,25 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBRL, formatData } from "@/lib/format"
 import { paymentMethodLabel } from "@/lib/finance/split"
+import { resolveCredentials } from "@/lib/professional"
+import { DownloadReceiptButton } from "@/components/receipt-pdf"
 import type { PaymentMethod } from "@/lib/types"
 
 export default async function ReceitasPage() {
   let revenues: any[] = []
+  let credentials = resolveCredentials(null)
 
   if (isSupabaseConfigured()) {
     const supabase = await createClient()
-    const { data } = await supabase
-      .from("revenues")
-      .select("*, patients!inner(full_name)")
-      .order("revenue_date", { ascending: false })
-    revenues = data ?? []
+    const [rev, defaults] = await Promise.all([
+      supabase
+        .from("revenues")
+        .select("*, patients!inner(full_name)")
+        .order("revenue_date", { ascending: false }),
+      supabase.from("report_defaults").select("*").maybeSingle(),
+    ])
+    revenues = rev.data ?? []
+    credentials = resolveCredentials(defaults.data)
   }
 
   const totals = revenues.reduce(
@@ -162,7 +169,11 @@ export default async function ReceitasPage() {
                       )}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {formatData(r.revenue_date)} ·{" "}
+                      Pagamento {formatData(r.revenue_date)}
+                      {r.settled_at
+                        ? ` · Recebimento ${formatData(r.settled_at)}`
+                        : ""}{" "}
+                      ·{" "}
                       {paymentMethodLabel(r.payment_method as PaymentMethod)}
                       {r.description ? ` · ${r.description}` : ""}
                     </p>
@@ -183,6 +194,24 @@ export default async function ReceitasPage() {
                       Cartão {formatBRL(Number(r.card_fee_amount))}
                     </Badge>
                   )}
+                </div>
+                <div className="mt-2">
+                  <DownloadReceiptButton
+                    data={{
+                      patientName: r.patients?.full_name || "Paciente",
+                      revenueDate: formatData(r.revenue_date),
+                      settledAt: formatData(
+                        r.settled_at || r.revenue_date,
+                      ),
+                      paymentMethodLabel: paymentMethodLabel(
+                        r.payment_method as PaymentMethod,
+                      ),
+                      description: r.description,
+                      grossAmountLabel: formatBRL(Number(r.gross_amount)),
+                      professionalName: credentials.professionalName,
+                      crefito: credentials.crefito,
+                    }}
+                  />
                 </div>
               </div>
             ))
