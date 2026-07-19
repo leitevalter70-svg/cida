@@ -6,6 +6,8 @@ import { SetupNotice } from "@/components/setup-notice"
 import { ClinicalReportEditor } from "@/components/forms/clinical-report-editor"
 import {
   DownloadClinicalPdfButton,
+  DownloadClinicalWordButton,
+  formatSessionLine,
   type ClinicalPdfData,
 } from "@/components/clinical-pdf"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -342,99 +344,35 @@ export default async function RelatorioClinicoPage({
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Histórico completo das sessões
-          </CardTitle>
+      <Card className="border-border/80 shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Histórico das sessões</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+        <CardContent>
           {pdfSessions.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nenhuma sessão encontrada para esta paciente.
             </p>
           ) : (
-            pdfSessions.map((s, i) => (
-              <div
-                key={`${s.date}-${i}`}
-                className="rounded-lg border border-border px-3 py-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">
-                    Sessão {i + 1} — {s.date}
-                  </p>
-                  {s.scale != null && <Badge>Escala {s.scale}</Badge>}
-                </div>
-                <dl className="mt-2 space-y-1.5 text-sm">
-                  {s.complaint && (
-                    <div>
-                      <dt className="text-xs font-medium text-muted-foreground">
-                        Queixa / foco do dia
-                      </dt>
-                      <dd>{s.complaint}</dd>
-                    </div>
-                  )}
-                  {s.procedures && (
-                    <div>
-                      <dt className="text-xs font-medium text-muted-foreground">
-                        Condutas
-                      </dt>
-                      <dd className="whitespace-pre-wrap">{s.procedures}</dd>
-                    </div>
-                  )}
-                  {s.accessRoute && (
-                    <div>
-                      <dt className="text-xs font-medium text-muted-foreground">
-                        Via / acessório
-                      </dt>
-                      <dd>{s.accessRoute}</dd>
-                    </div>
-                  )}
-                  {s.deviceNotes && (
-                    <div>
-                      <dt className="text-xs font-medium text-muted-foreground">
-                        Obs. aparelho
-                      </dt>
-                      <dd>{s.deviceNotes}</dd>
-                    </div>
-                  )}
-                  {s.patientResponse && (
-                    <div>
-                      <dt className="text-xs font-medium text-muted-foreground">
-                        Resposta / observação
-                      </dt>
-                      <dd className="whitespace-pre-wrap">
-                        {s.patientResponse}
-                      </dd>
-                    </div>
-                  )}
-                  {s.nextStep && (
-                    <div>
-                      <dt className="text-xs font-medium text-muted-foreground">
-                        Próximo passo
-                      </dt>
-                      <dd>{s.nextStep}</dd>
-                    </div>
-                  )}
-                </dl>
-                {s.devices.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {s.devices.map((n) => (
-                      <Badge key={n} variant="outline">
-                        {n}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))
+            <ul className="divide-y divide-border text-sm">
+              {pdfSessions.map((s, i) => (
+                <li
+                  key={`${s.date}-${i}`}
+                  className="py-1.5 leading-snug text-muted-foreground"
+                >
+                  <span className="text-foreground">
+                    {formatSessionLine(i, s)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Revisar antes do PDF</CardTitle>
+      <Card className="border-border/80 shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Revisar antes de exportar</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <ClinicalReportEditor
@@ -443,11 +381,14 @@ export default async function RelatorioClinicoPage({
             synthesis={report.synthesis_text}
             maintenance={report.maintenance_guidance}
           />
-          <DownloadClinicalPdfButton data={pdfData} />
+          <div className="flex flex-wrap gap-2">
+            <DownloadClinicalPdfButton data={pdfData} />
+            <DownloadClinicalWordButton data={pdfData} />
+          </div>
           <p className="text-xs text-muted-foreground">
-            O PDF inclui identificação da profissional (
+            PDF e Word incluem identificação da profissional (
             {credentials.professionalName} ·{" "}
-            {formatCrefitoLine(credentials.crefito)}). Não inclui valores,
+            {formatCrefitoLine(credentials.crefito)}). Não incluem valores,
             parcelas, % da clínica nem taxa de cartão.
           </p>
         </CardContent>

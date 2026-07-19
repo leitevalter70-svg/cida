@@ -11,6 +11,14 @@ import {
   Path,
   Circle,
 } from "@react-pdf/renderer"
+import {
+  Document as DocxDocument,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+} from "docx"
 import { Button } from "@/components/ui/button"
 import { PHYSIO_SYMBOL_PATHS } from "@/components/physio-symbol"
 
@@ -18,25 +26,26 @@ const BRAND = "#2a6f77"
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
-    fontSize: 11,
+    padding: 28,
+    fontSize: 9,
     fontFamily: "Helvetica",
     color: "#1f2a2e",
+    lineHeight: 1.25,
   },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1.5,
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
     borderBottomColor: "#d5e0e0",
   },
   brandIcon: {
-    width: 36,
-    height: 36,
-    marginRight: 10,
+    width: 24,
+    height: 24,
+    marginRight: 8,
     backgroundColor: BRAND,
-    borderRadius: 8,
+    borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -44,63 +53,61 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   brandName: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: "Helvetica-Bold",
     color: BRAND,
   },
   brandTag: {
-    fontSize: 9,
+    fontSize: 8,
     color: "#5a6b70",
-    marginTop: 2,
   },
   title: {
-    fontSize: 18,
-    marginBottom: 4,
+    fontSize: 14,
+    marginBottom: 2,
     fontFamily: "Helvetica-Bold",
     color: "#1f2a2e",
   },
-  subtitle: { fontSize: 10, color: "#5a6b70", marginBottom: 16 },
-  section: { marginTop: 14, marginBottom: 4 },
+  subtitle: { fontSize: 8, color: "#5a6b70", marginBottom: 8 },
+  section: { marginTop: 8, marginBottom: 2 },
   heading: {
-    fontSize: 12,
+    fontSize: 10,
     fontFamily: "Helvetica-Bold",
-    marginBottom: 6,
+    marginBottom: 3,
     color: BRAND,
   },
-  row: { marginBottom: 4, lineHeight: 1.4 },
+  row: { marginBottom: 2 },
   label: { fontFamily: "Helvetica-Bold" },
-  sessionCard: {
-    marginBottom: 10,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8e8",
+  sessionLine: {
+    marginBottom: 2,
+    fontSize: 8,
+    lineHeight: 1.2,
   },
   disclaimer: {
-    marginTop: 20,
-    fontSize: 9,
+    marginTop: 10,
+    fontSize: 8,
     color: "#5a6b70",
-    lineHeight: 1.4,
+    lineHeight: 1.3,
   },
   signature: {
-    marginTop: 28,
-    paddingTop: 14,
+    marginTop: 14,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: "#d5e0e0",
   },
   signatureName: {
-    fontSize: 11,
+    fontSize: 9,
     fontFamily: "Helvetica-Bold",
-    marginBottom: 2,
+    marginBottom: 1,
   },
   signatureMeta: {
-    fontSize: 10,
+    fontSize: 8,
     color: "#5a6b70",
   },
   box: {
     backgroundColor: "#f3f7f7",
-    padding: 10,
-    borderRadius: 4,
-    marginTop: 6,
+    padding: 6,
+    borderRadius: 3,
+    marginTop: 3,
   },
 })
 
@@ -108,7 +115,7 @@ function PhysioSymbolPdf() {
   const p = PHYSIO_SYMBOL_PATHS
   return (
     <View style={styles.brandIcon}>
-      <Svg viewBox="0 0 48 48" width={26} height={26}>
+      <Svg viewBox="0 0 48 48" width={18} height={18}>
         <Path
           d={p.staff}
           stroke="#ffffff"
@@ -179,6 +186,22 @@ export type ClinicalPdfData = {
   sessions: ClinicalPdfSession[]
 }
 
+/** Compact one-line summary for a session (UI + PDF + Word). */
+export function formatSessionLine(
+  index: number,
+  s: ClinicalPdfSession,
+): string {
+  const parts: string[] = [`${index + 1}. ${s.date}`]
+  if (s.scale != null) parts.push(`Esc. ${s.scale}`)
+  if (s.complaint) parts.push(s.complaint)
+  if (s.procedures) parts.push(s.procedures.replace(/\s+/g, " ").trim())
+  if (s.devices.length > 0) parts.push(s.devices.join(", "))
+  if (s.accessRoute) parts.push(s.accessRoute)
+  if (s.patientResponse)
+    parts.push(s.patientResponse.replace(/\s+/g, " ").trim())
+  return parts.join(" · ")
+}
+
 function Field({
   label,
   value,
@@ -230,21 +253,15 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
         <View style={styles.section}>
           <Text style={styles.heading}>Tratamento</Text>
           <Text style={styles.row}>
-            Período: {data.periodStart || "—"} a {data.periodEnd || "—"}
-          </Text>
-          <Text style={styles.row}>
-            Sessões: {data.sessionsDone ?? 0} de {data.sessionsPlanned ?? 0}{" "}
-            previstas
-          </Text>
-          <Text style={styles.row}>Adesão: {data.adherence ?? 0}%</Text>
-          <Text style={styles.row}>
-            Escala início → fim: {data.scaleStart ?? "—"} →{" "}
+            Período: {data.periodStart || "—"} a {data.periodEnd || "—"} ·
+            Sessões: {data.sessionsDone ?? 0}/{data.sessionsPlanned ?? 0} ·
+            Adesão: {data.adherence ?? 0}% · Escala: {data.scaleStart ?? "—"} →{" "}
             {data.scaleEnd ?? "—"}
           </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.heading}>Aparelhos / recursos utilizados</Text>
+          <Text style={styles.heading}>Aparelhos / recursos</Text>
           <Text style={styles.row}>
             {data.devicesSummary || "Não registrados"}
           </Text>
@@ -259,29 +276,11 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
 
         {data.sessions.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.heading}>Histórico completo das sessões</Text>
+            <Text style={styles.heading}>Histórico das sessões</Text>
             {data.sessions.map((s, i) => (
-              <View key={i} style={styles.sessionCard} wrap={false}>
-                <Text style={styles.row}>
-                  <Text style={styles.label}>
-                    Sessão {i + 1} — {s.date}
-                  </Text>
-                  {s.scale != null ? ` · Escala ${s.scale}` : ""}
-                </Text>
-                <Field label="Queixa / foco do dia" value={s.complaint} />
-                <Field label="Condutas realizadas" value={s.procedures} />
-                <Field
-                  label="Aparelhos"
-                  value={s.devices.length > 0 ? s.devices.join(", ") : null}
-                />
-                <Field label="Via / acessório" value={s.accessRoute} />
-                <Field label="Obs. aparelho" value={s.deviceNotes} />
-                <Field
-                  label="Resposta / observação"
-                  value={s.patientResponse}
-                />
-                <Field label="Próximo passo" value={s.nextStep} />
-              </View>
+              <Text key={i} style={styles.sessionLine}>
+                {formatSessionLine(i, s)}
+              </Text>
             ))}
           </View>
         )}
@@ -308,20 +307,238 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
   )
 }
 
+function fileBaseName(patientName: string) {
+  return `relatorio-clinico-${patientName.replace(/\s+/g, "-").toLowerCase()}`
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function DownloadClinicalPdfButton({ data }: { data: ClinicalPdfData }) {
   async function handleDownload() {
     const blob = await pdf(<ClinicalDocument data={data} />).toBlob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `relatorio-clinico-${data.patientName.replace(/\s+/g, "-").toLowerCase()}.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${fileBaseName(data.patientName)}.pdf`)
   }
 
   return (
     <Button type="button" onClick={handleDownload}>
-      Baixar PDF clínico
+      Baixar PDF
+    </Button>
+  )
+}
+
+function buildWordDocument(data: ClinicalPdfData) {
+  const children: Paragraph[] = [
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Cida", bold: true, color: "2A6F77", size: 22 }),
+      ],
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: "Fisioterapia · saúde da mulher",
+          size: 16,
+          color: "5A6B70",
+        }),
+      ],
+      spacing: { after: 120 },
+    }),
+    new Paragraph({
+      text: "Relatório clínico",
+      heading: HeadingLevel.HEADING_1,
+      spacing: { after: 40 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: "Documento exclusivo para a paciente — sem informações financeiras",
+          size: 16,
+          color: "5A6B70",
+          italics: true,
+        }),
+      ],
+      spacing: { after: 160 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Identificação da paciente", bold: true, size: 20, color: "2A6F77" }),
+      ],
+      spacing: { before: 80, after: 60 },
+    }),
+  ]
+
+  const patientFields: [string, string | number | null | undefined][] = [
+    ["Nome", data.patientName],
+    ["Idade", data.age != null ? `${data.age} anos` : null],
+    ["Sexo", data.sex],
+    ["Telefone", data.phone],
+    ["E-mail", data.email],
+    ["Status", data.patientStatus],
+    ["Queixa / foco", data.complaint],
+    ["Observações do cadastro", data.patientNotes],
+  ]
+
+  for (const [label, value] of patientFields) {
+    if (value == null || value === "") continue
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: `${label}: `, bold: true, size: 18 }),
+          new TextRun({ text: String(value), size: 18 }),
+        ],
+        spacing: { after: 20 },
+      }),
+    )
+  }
+
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Tratamento", bold: true, size: 20, color: "2A6F77" }),
+      ],
+      spacing: { before: 120, after: 60 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: `Período: ${data.periodStart || "—"} a ${data.periodEnd || "—"} · Sessões: ${data.sessionsDone ?? 0}/${data.sessionsPlanned ?? 0} · Adesão: ${data.adherence ?? 0}% · Escala: ${data.scaleStart ?? "—"} → ${data.scaleEnd ?? "—"}`,
+          size: 18,
+        }),
+      ],
+      spacing: { after: 20 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Aparelhos / recursos", bold: true, size: 20, color: "2A6F77" }),
+      ],
+      spacing: { before: 120, after: 60 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: data.devicesSummary || "Não registrados",
+          size: 18,
+        }),
+      ],
+      spacing: { after: 20 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Indicador de chances", bold: true, size: 20, color: "2A6F77" }),
+      ],
+      spacing: { before: 120, after: 60 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: data.chanceSummary || "—", size: 18 }),
+      ],
+      spacing: { after: 20 },
+    }),
+  )
+
+  if (data.sessions.length > 0) {
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({ text: "Histórico das sessões", bold: true, size: 20, color: "2A6F77" }),
+        ],
+        spacing: { before: 120, after: 60 },
+      }),
+    )
+    data.sessions.forEach((s, i) => {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: formatSessionLine(i, s), size: 16 }),
+          ],
+          spacing: { after: 16 },
+        }),
+      )
+    })
+  }
+
+  children.push(
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Síntese da profissional", bold: true, size: 20, color: "2A6F77" }),
+      ],
+      spacing: { before: 120, after: 60 },
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: data.synthesis || "—", size: 18 })],
+      spacing: { after: 20 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Orientação de manutenção", bold: true, size: 20, color: "2A6F77" }),
+      ],
+      spacing: { before: 120, after: 60 },
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: data.maintenance || "—", size: 18 })],
+      spacing: { after: 20 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: data.disclaimer,
+          size: 14,
+          color: "5A6B70",
+          italics: true,
+        }),
+      ],
+      spacing: { before: 160, after: 120 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: data.professionalName, bold: true, size: 18 }),
+      ],
+      spacing: { before: 80 },
+      alignment: AlignmentType.LEFT,
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: data.crefitoLine, size: 16, color: "5A6B70" }),
+      ],
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: "Fisioterapeuta", size: 16, color: "5A6B70" }),
+      ],
+    }),
+  )
+
+  return new DocxDocument({
+    sections: [
+      {
+        properties: {
+          page: {
+            margin: { top: 720, right: 720, bottom: 720, left: 720 },
+          },
+        },
+        children,
+      },
+    ],
+  })
+}
+
+export function DownloadClinicalWordButton({ data }: { data: ClinicalPdfData }) {
+  async function handleDownload() {
+    const doc = buildWordDocument(data)
+    const blob = await Packer.toBlob(doc)
+    downloadBlob(blob, `${fileBaseName(data.patientName)}.docx`)
+  }
+
+  return (
+    <Button type="button" variant="outline" onClick={handleDownload}>
+      Baixar Word
     </Button>
   )
 }
