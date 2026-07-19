@@ -18,6 +18,7 @@ export function TreatmentForm({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [patientId, setPatientId] = useState(defaultPatientId)
+  const [kind, setKind] = useState<"pacote" | "avulso">("pacote")
   const [error, setError] = useState<string | null>(null)
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -28,9 +29,14 @@ export function TreatmentForm({
     startTransition(async () => {
       try {
         const result = await createTreatment(fd)
-        router.push(
-          `/pacientes/${result.patientId}?lancar=receita&tratamento=${result.id}`,
-        )
+        const kind = String(fd.get("kind") || "pacote")
+        if (kind === "avulso") {
+          router.push(`/pacientes/${result.patientId}`)
+        } else {
+          router.push(
+            `/pacientes/${result.patientId}?lancar=receita&tratamento=${result.id}`,
+          )
+        }
         router.refresh()
       } catch (err) {
         setError(
@@ -66,11 +72,17 @@ export function TreatmentForm({
           id="kind"
           name="kind"
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-          defaultValue="pacote"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as "pacote" | "avulso")}
         >
-          <option value="pacote">Pacote fechado</option>
-          <option value="avulso">Avulso</option>
+          <option value="pacote">Pacote fechado (parcelas)</option>
+          <option value="avulso">Avulso (por sessão)</option>
         </select>
+        <p className="text-xs text-muted-foreground">
+          {kind === "avulso"
+            ? "Cada sessão paga gera uma receita — não cria parcelas nem acumula no pacote."
+            : "Valor total dividido em parcelas. Sessões clínicas não geram pagamento automático."}
+        </p>
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="protocol_name">Protocolo / nome</Label>
@@ -94,7 +106,9 @@ export function TreatmentForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="total_amount">Valor total (R$)</Label>
+          <Label htmlFor="total_amount">
+            {kind === "avulso" ? "Valor por sessão (R$)" : "Valor total do pacote (R$)"}
+          </Label>
           <Input
             id="total_amount"
             name="total_amount"
@@ -115,7 +129,13 @@ export function TreatmentForm({
             type="number"
             min={1}
             defaultValue={4}
+            disabled={kind === "avulso"}
           />
+          <p className="text-xs text-muted-foreground">
+            {kind === "avulso"
+              ? "Não se aplica ao pagamento por sessão."
+              : "Vencimentos semanais a partir do início (PIX/dinheiro)."}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="started_at">Início</Label>

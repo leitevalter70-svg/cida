@@ -45,10 +45,18 @@ type Installment = {
   status: string
 }
 
+export type SessionOption = {
+  id: string
+  treatment_id: string | null
+  session_date: string
+  paid: boolean
+}
+
 export type RevenueRecord = {
   id: string
   treatment_id: string | null
   installment_id: string | null
+  session_id?: string | null
   revenue_date: string
   settled_at: string
   description: string | null
@@ -68,33 +76,81 @@ type ProfessionalInfo = {
   crefito: string
 }
 
+type PaymentMode = "parcela" | "sessao"
+
+type Suggestion = {
+  mode: PaymentMode
+  installmentId: string
+  sessionId: string
+  gross: number
+  description: string
+}
+
+/** Preço de uma sessão no avulso (= valor cadastrado no tratamento). */
+function sessionPrice(treatment: Treatment | undefined) {
+  if (!treatment) return 0
+  return Number(treatment.total_amount) || 0
+}
+
 function suggestFromCadastro(
   treatmentId: string,
   treatments: Treatment[],
   installments: Installment[],
-) {
-  const pendingForTreatment = installments.filter(
-    (i) =>
-      i.status !== "paga" &&
-      (!treatmentId || i.treatment_id === treatmentId),
-  )
+  sessions: SessionOption[],
+  preferredSessionId = "",
+): Suggestion {
+  const treatment = treatments.find((t) => t.id === treatmentId)
+  const kind = treatment?.kind || "pacote"
+
+  if (kind === "avulso") {
+    const unpaid = sessions.filter(
+      (s) =>
+        !s.paid &&
+        (!treatmentId ||
+          s.treatment_id === treatmentId ||
+          s.treatment_id == null),
+    )
+    const preferred =
+      unpaid.find((s) => s.id === preferredSessionId) || unpaid[0]
+    const price = sessionPrice(treatment)
+    return {
+      mode: "sessao",
+      installmentId: "",
+      sessionId: preferred?.id || preferredSessionId || "",
+      gross: price,
+      description: preferred
+        ? `Sessão ${formatData(preferred.session_date)}`
+        : "Pagamento por sessão",
+    }
+  }
+
+  const pendingForTreatment = installments
+    .filter(
+      (i) =>
+        i.status !== "paga" &&
+        (!treatmentId || i.treatment_id === treatmentId),
+    )
+    .sort((a, b) => a.sequence_number - b.sequence_number)
   const first = pendingForTreatment[0]
   if (first) {
     return {
+      mode: "parcela",
       installmentId: first.id,
+      sessionId: "",
       gross: Number(first.amount),
+      description: `Parcela ${first.sequence_number}${
+        treatment ? ` — ${treatment.protocol_name}` : ""
+      }`,
     }
   }
 
-  const treatment = treatments.find((t) => t.id === treatmentId)
-  if (treatment && Number(treatment.total_amount) > 0) {
-    return {
-      installmentId: "",
-      gross: Number(treatment.total_amount),
-    }
+  return {
+    mode: "parcela",
+    installmentId: "",
+    sessionId: "",
+    gross: 0,
+    description: "",
   }
-
-  return { installmentId: "", gross: 0 }
 }
 
 export function PatientRevenuePanel({
@@ -102,20 +158,24 @@ export function PatientRevenuePanel({
   patientName,
   treatments,
   installments,
+  sessions = [],
   settings,
   revenues,
   professional,
   defaultTreatmentId = "",
+  defaultSessionId = "",
   highlight = false,
 }: {
   patientId: string
   patientName: string
   treatments: Treatment[]
   installments: Installment[]
+  sessions?: SessionOption[]
   settings: Settings | null
   revenues: RevenueRecord[]
   professional: ProfessionalInfo
   defaultTreatmentId?: string
+  defaultSessionId?: string
   highlight?: boolean
 }) {
   const [editing, setEditing] = useState<RevenueRecord | null>(null)
@@ -138,21 +198,31 @@ export function PatientRevenuePanel({
                 ? "Lançar receita deste paciente"
                 : "Nova receita"}
           </h3>
-          {editing && (
+          {editing ? (
             <p className="mt-1 text-xs text-muted-foreground">
               Altere só o necessário — não cria outro lançamento.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Pacote usa parcela; avulso usa sessão. Um pagamento = uma linha na
+              prestação de contas.
             </p>
           )}
         </div>
         <div className="p-4">
           <RevenueForm
-            key={editing?.id ?? `new-${defaultTreatmentId}`}
+            key={
+              editing?.id ??
+              `new-${defaultTreatmentId}-${defaultSessionId}`
+            }
             patientId={patientId}
             patientName={patientName}
             treatments={treatments}
             installments={installments}
+            sessions={sessions}
             settings={settings}
             defaultTreatmentId={defaultTreatmentId}
+            defaultSessionId={defaultSessionId}
             revenue={editing}
             onCancelEdit={() => setEditing(null)}
             onSaved={() => setEditing(null)}
@@ -212,6 +282,11 @@ function RevenueListItem({
             Pagamento {formatData(revenue.revenue_date)} · Recebimento{" "}
             {formatData(revenue.settled_at)} ·{" "}
             {paymentMethodLabel(revenue.payment_method)}
+            {revenue.installment_id
+              ? " · Parcela"
+              : revenue.session_id
+                ? " · Sessão"
+                : ""}
           </p>
         </div>
         <p className="font-semibold">
@@ -260,7 +335,7 @@ function RevenueListItem({
           onClick={() => {
             if (
               !confirm(
-                "Excluir este lançamento? A parcela vinculada volta a pendente, se houver.",
+                "Excluir este lançamento? A parcela ou sessão vinculada volta a ficar em aberto, se houver.",
               )
             ) {
               return
@@ -283,8 +358,10 @@ function RevenueForm({
   patientName,
   treatments,
   installments,
+  sessions,
   settings,
   defaultTreatmentId = "",
+  defaultSessionId = "",
   revenue,
   onCancelEdit,
   onSaved,
@@ -293,8 +370,10 @@ function RevenueForm({
   patientName?: string
   treatments: Treatment[]
   installments: Installment[]
+  sessions: SessionOption[]
   settings: Settings | null
   defaultTreatmentId?: string
+  defaultSessionId?: string
   revenue?: RevenueRecord | null
   onCancelEdit?: () => void
   onSaved?: () => void
@@ -309,15 +388,29 @@ function RevenueForm({
     defaultTreatmentId ||
     treatments.find((t) => t.patient_id === patientId)?.id ||
     ""
+
   const initial = revenue
     ? {
+        mode: (revenue.installment_id
+          ? "parcela"
+          : "sessao") as PaymentMode,
         installmentId: revenue.installment_id || "",
+        sessionId: revenue.session_id || "",
         gross: Number(revenue.gross_amount),
+        description: revenue.description || "",
       }
-    : suggestFromCadastro(initialTreatmentId, treatments, installments)
+    : suggestFromCadastro(
+        initialTreatmentId,
+        treatments,
+        installments,
+        sessions,
+        defaultSessionId,
+      )
 
+  const [mode, setMode] = useState<PaymentMode>(initial.mode)
   const [gross, setGross] = useState(initial.gross)
   const [installmentId, setInstallmentId] = useState(initial.installmentId)
+  const [sessionId, setSessionId] = useState(initial.sessionId)
   const [method, setMethod] = useState<PaymentMethod>(
     revenue?.payment_method ?? "pix",
   )
@@ -355,9 +448,12 @@ function RevenueForm({
       ),
   )
   const [settledManual, setSettledManual] = useState(false)
-  const [description, setDescription] = useState(revenue?.description ?? "")
+  const [description, setDescription] = useState(initial.description)
 
   const cardApplies = isCardPayment(method)
+  const selectedTreatment = treatments.find((t) => t.id === treatmentId)
+  const treatmentKind = selectedTreatment?.kind || "pacote"
+  const isPackage = treatmentKind === "pacote"
 
   function syncSettledAt(nextDate: string, nextMethod: PaymentMethod) {
     if (!settledManual) {
@@ -384,32 +480,90 @@ function RevenueForm({
       (!treatmentId || i.treatment_id === treatmentId) &&
       (i.status !== "paga" || i.id === revenue?.installment_id),
   )
+  const unpaidSessions = sessions.filter(
+    (s) =>
+      (!s.paid || s.id === revenue?.session_id) &&
+      (!treatmentId ||
+        s.treatment_id === treatmentId ||
+        s.treatment_id == null),
+  )
 
-  function applyCadastroSuggestion(nextTreatmentId: string) {
+  function applySuggestion(nextTreatmentId: string, preferredSession = "") {
     if (isEdit) return
     const suggested = suggestFromCadastro(
       nextTreatmentId,
       treatments,
       installments,
+      sessions,
+      preferredSession,
     )
+    setMode(suggested.mode)
     setInstallmentId(suggested.installmentId)
+    setSessionId(suggested.sessionId)
     setGross(suggested.gross)
+    setDescription(suggested.description)
   }
 
   function onTreatmentChange(nextId: string) {
     setTreatmentId(nextId)
-    applyCadastroSuggestion(nextId)
+    applySuggestion(nextId)
+  }
+
+  function onModeChange(next: PaymentMode) {
+    setMode(next)
+    if (isEdit) return
+    if (next === "parcela") {
+      setSessionId("")
+      const first = filteredInstallments.find((i) => i.status !== "paga")
+      if (first) {
+        setInstallmentId(first.id)
+        setGross(Number(first.amount))
+        setDescription(
+          `Parcela ${first.sequence_number}${
+            selectedTreatment ? ` — ${selectedTreatment.protocol_name}` : ""
+          }`,
+        )
+      } else {
+        setInstallmentId("")
+        setGross(0)
+        setDescription("")
+      }
+      return
+    }
+    setInstallmentId("")
+    const price = sessionPrice(selectedTreatment)
+    const firstSession = unpaidSessions[0]
+    setSessionId(firstSession?.id || "")
+    setGross(price)
+    setDescription(
+      firstSession
+        ? `Sessão ${formatData(firstSession.session_date)}`
+        : "Pagamento por sessão",
+    )
   }
 
   function onInstallmentChange(nextId: string) {
     setInstallmentId(nextId)
-    if (!nextId) {
-      const treatment = treatments.find((t) => t.id === treatmentId)
-      setGross(Number(treatment?.total_amount) || 0)
-      return
-    }
     const inst = installments.find((i) => i.id === nextId)
-    if (inst) setGross(Number(inst.amount))
+    if (inst) {
+      setGross(Number(inst.amount))
+      setDescription(
+        `Parcela ${inst.sequence_number}${
+          selectedTreatment ? ` — ${selectedTreatment.protocol_name}` : ""
+        }`,
+      )
+    }
+  }
+
+  function onSessionChange(nextId: string) {
+    setSessionId(nextId)
+    const session = sessions.find((s) => s.id === nextId)
+    if (session) {
+      setGross(sessionPrice(selectedTreatment) || gross)
+      setDescription(`Sessão ${formatData(session.session_date)}`)
+      setRevenueDate(session.session_date)
+      syncSettledAt(session.session_date, method)
+    }
   }
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -417,9 +571,30 @@ function RevenueForm({
     const form = e.currentTarget
     const fd = new FormData(form)
     const usesCard = isCardPayment(method)
+    const linkedInstallment = mode === "parcela" ? installmentId : ""
+    const linkedSession = mode === "sessao" ? sessionId : ""
+
+    if (mode === "parcela" && !linkedInstallment && isPackage) {
+      setSaveError(
+        "No pacote, vincule uma parcela. Isso evita lançar o valor total de novo na prestação.",
+      )
+      return
+    }
+    if (mode === "sessao" && isPackage) {
+      setSaveError(
+        "Tratamento em pacote: use a parcela correspondente. Pagamento por sessão é só no modelo avulso.",
+      )
+      return
+    }
+    if (mode === "sessao" && !linkedSession) {
+      setSaveError("Selecione a sessão que está sendo paga.")
+      return
+    }
+
     fd.set("patient_id", patientId)
     fd.set("treatment_id", treatmentId)
-    fd.set("installment_id", installmentId)
+    fd.set("installment_id", linkedInstallment)
+    fd.set("session_id", linkedSession)
     fd.set("clinic_shares_card_fee", usesCard && sharesFee ? "true" : "false")
     fd.set("clinic_percent", String(clinicPercent))
     fd.set("card_fee_percent", String(usesCard ? cardPercent : 0))
@@ -442,19 +617,12 @@ function RevenueForm({
         router.refresh()
         if (!revenue) {
           form.reset()
-          const next = suggestFromCadastro(
-            defaultTreatmentId,
-            treatments,
-            installments.filter((i) => i.id !== installmentId),
-          )
-          setGross(next.gross)
-          setInstallmentId(next.installmentId)
+          applySuggestion(defaultTreatmentId || initialTreatmentId)
           setMethod("pix")
           setTreatmentId(defaultTreatmentId || initialTreatmentId)
           setRevenueDate(todayISO())
           setSettledManual(false)
           setSettledAt(computeSettledAt(todayISO(), "pix", creditDays))
-          setDescription("")
         }
       } catch (err) {
         setSaveError(
@@ -486,6 +654,7 @@ function RevenueForm({
           {patientTreatments.map((t) => (
             <option key={t.id} value={t.id}>
               {t.protocol_name}
+              {t.kind === "avulso" ? " · por sessão" : " · pacote"}
               {Number(t.total_amount) > 0
                 ? ` · ${formatBRL(Number(t.total_amount))}`
                 : ""}
@@ -495,23 +664,80 @@ function RevenueForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="installment_id">Parcela</Label>
-        <select
-          id="installment_id"
-          name="installment_id"
-          className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-          value={installmentId}
-          onChange={(e) => onInstallmentChange(e.target.value)}
-        >
-          <option value="">Avulso / sem parcela</option>
-          {filteredInstallments.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.sequence_number}ª · {formatBRL(Number(i.amount))}
-              {i.status === "paga" ? " (atual)" : ""}
-            </option>
-          ))}
-        </select>
+        <Label>Tipo de pagamento</Label>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "parcela" ? "default" : "outline"}
+            disabled={!isPackage && !isEdit}
+            onClick={() => onModeChange("parcela")}
+          >
+            Parcela do pacote
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === "sessao" ? "default" : "outline"}
+            disabled={isPackage && !isEdit}
+            onClick={() => onModeChange("sessao")}
+          >
+            Por sessão
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {mode === "parcela"
+            ? "Baixa só a parcela escolhida — não soma o valor total do pacote de novo."
+            : "Uma sessão = uma receita. Não mexe nas parcelas do pacote."}
+        </p>
       </div>
+
+      {mode === "parcela" ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="installment_id">Parcela</Label>
+          <select
+            id="installment_id"
+            name="installment_id"
+            className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+            value={installmentId}
+            onChange={(e) => onInstallmentChange(e.target.value)}
+            required={isPackage}
+          >
+            <option value="">Selecione a parcela</option>
+            {filteredInstallments.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.sequence_number}ª · {formatBRL(Number(i.amount))}
+                {i.status === "paga" ? " (atual)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label htmlFor="session_id">Sessão paga</Label>
+          <select
+            id="session_id"
+            name="session_id"
+            className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+            value={sessionId}
+            onChange={(e) => onSessionChange(e.target.value)}
+            required
+          >
+            <option value="">Selecione a sessão</option>
+            {unpaidSessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {formatData(s.session_date)}
+                {s.paid ? " (atual)" : ""}
+              </option>
+            ))}
+          </select>
+          {unpaidSessions.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Cadastre a sessão clínica antes de lançar o pagamento.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
@@ -561,7 +787,9 @@ function RevenueForm({
         />
         {!isEdit && (
           <p className="text-xs text-muted-foreground">
-            Vem do tratamento/parcela — você pode alterar só neste lançamento.
+            {mode === "parcela"
+              ? "Valor da parcela — não usa o total do pacote."
+              : "Valor por sessão cadastrado no tratamento avulso."}
           </p>
         )}
       </div>

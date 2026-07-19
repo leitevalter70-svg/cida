@@ -30,10 +30,18 @@ export default async function PacienteDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ lancar?: string; tratamento?: string }>
+  searchParams: Promise<{
+    lancar?: string
+    tratamento?: string
+    sessao?: string
+  }>
 }) {
   const { id } = await params
-  const { lancar, tratamento: defaultTreatmentId = "" } = await searchParams
+  const {
+    lancar,
+    tratamento: defaultTreatmentId = "",
+    sessao: defaultSessionId = "",
+  } = await searchParams
   const highlightRevenue = lancar === "receita"
 
   if (!isSupabaseConfigured()) {
@@ -161,6 +169,19 @@ export default async function PacienteDetailPage({
     total_amount: Number(t.total_amount),
   }))
 
+  const paidSessionIds = new Set(
+    (revenues ?? [])
+      .map((r) => r.session_id as string | null)
+      .filter((sid): sid is string => Boolean(sid)),
+  )
+
+  const sessionOptions = (sessions ?? []).map((s) => ({
+    id: s.id as string,
+    treatment_id: (s.treatment_id as string | null) ?? null,
+    session_date: s.session_date as string,
+    paid: paidSessionIds.has(s.id as string),
+  }))
+
   const credentials = resolveCredentials(reportDefaults)
 
   return (
@@ -260,14 +281,17 @@ export default async function PacienteDetailPage({
         patientName={patient.full_name}
         treatments={treatmentOptions}
         installments={installments}
+        sessions={sessionOptions}
         settings={settings}
         defaultTreatmentId={defaultTreatmentId}
+        defaultSessionId={defaultSessionId}
         highlight={highlightRevenue}
         professional={credentials}
         revenues={(revenues ?? []).map((r) => ({
           id: r.id,
           treatment_id: r.treatment_id,
           installment_id: r.installment_id,
+          session_id: r.session_id,
           revenue_date: r.revenue_date,
           settled_at: r.settled_at || r.revenue_date,
           description: r.description,
@@ -312,9 +336,11 @@ export default async function PacienteDetailPage({
                   (s.session_devices as { device_catalog: { name: string } }[])
                     ?.map((d) => d.device_catalog?.name)
                     .filter(Boolean) ?? []
-                const treatmentName = treatments?.find(
+                const treatment = treatments?.find(
                   (t) => t.id === s.treatment_id,
-                )?.protocol_name
+                )
+                const treatmentName = treatment?.protocol_name
+                const sessionPaid = paidSessionIds.has(s.id as string)
                 const accessLabel =
                   {
                     sonda_vaginal: "Sonda vaginal",
@@ -370,9 +396,16 @@ export default async function PacienteDetailPage({
                       <p className="text-sm font-medium">
                         {formatData(s.session_date)}
                       </p>
-                      {s.evolution_scale != null && (
-                        <Badge>Escala {s.evolution_scale}</Badge>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1">
+                        {sessionPaid ? (
+                          <Badge variant="secondary">Paga</Badge>
+                        ) : treatment?.kind === "avulso" ? (
+                          <Badge variant="outline">A cobrar</Badge>
+                        ) : null}
+                        {s.evolution_scale != null && (
+                          <Badge>Escala {s.evolution_scale}</Badge>
+                        )}
+                      </div>
                     </div>
                     {rows.length > 0 ? (
                       <dl className="mt-2 space-y-1.5 text-sm">
@@ -404,6 +437,18 @@ export default async function PacienteDetailPage({
                             </Badge>
                           ))}
                         </div>
+                      </div>
+                    )}
+                    {!sessionPaid && treatment?.kind === "avulso" && (
+                      <div className="mt-3">
+                        <Link
+                          href={`/pacientes/${patient.id}?lancar=receita&tratamento=${treatment.id}&sessao=${s.id}`}
+                          className={cn(
+                            buttonVariants({ size: "sm", variant: "outline" }),
+                          )}
+                        >
+                          Registrar pagamento da sessão
+                        </Link>
                       </div>
                     )}
                   </div>
@@ -441,18 +486,30 @@ export default async function PacienteDetailPage({
                     <div>
                       <p className="font-medium">{t.protocol_name}</p>
                       <p className="text-xs text-muted-foreground">
+                        {t.kind === "avulso" ? "Avulso · por sessão" : "Pacote"} ·{" "}
                         {t.status}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
-                        className={cn(
-                          buttonVariants({ size: "sm", variant: "outline" }),
-                        )}
-                      >
-                        Lançar receita
-                      </Link>
+                      {t.kind === "avulso" ? (
+                        <Link
+                          href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
+                          className={cn(
+                            buttonVariants({ size: "sm", variant: "outline" }),
+                          )}
+                        >
+                          Pagar sessão
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
+                          className={cn(
+                            buttonVariants({ size: "sm", variant: "outline" }),
+                          )}
+                        >
+                          Lançar parcela
+                        </Link>
+                      )}
                       {report && (
                         <Link
                           href={`/relatorios/clinico/${t.id}`}

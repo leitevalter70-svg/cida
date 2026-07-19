@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { createSession } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,11 +21,17 @@ export function SessionForm({
   defaultComplaint,
 }: {
   patientId: string
-  treatments: { id: string; protocol_name: string; status: string }[]
+  treatments: {
+    id: string
+    protocol_name: string
+    status: string
+    kind?: string
+  }[]
   devices: { id: string; name: string }[]
   complaintOptions?: ComplaintOption[]
   defaultComplaint?: string | null
 }) {
+  const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const active = treatments.filter((t) => t.status === "ativo")
@@ -41,11 +48,19 @@ export function SessionForm({
     setError(null)
     startTransition(async () => {
       try {
-        await createSession(fd)
+        const result = await createSession(fd)
         form.reset()
+        router.refresh()
+        if (result.offerSessionPayment && result.treatmentId) {
+          router.push(
+            `/pacientes/${result.patientId}?lancar=receita&tratamento=${result.treatmentId}&sessao=${result.id}`,
+          )
+        }
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Não foi possível salvar a sessão.",
+          err instanceof Error
+            ? err.message
+            : "Não foi possível salvar a sessão.",
         )
       }
     })
@@ -84,10 +99,11 @@ export function SessionForm({
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
           defaultValue={defaultTreatmentId}
         >
-          <option value="">Avulso / sem vínculo</option>
+          <option value="">Sem vínculo</option>
           {active.map((t) => (
             <option key={t.id} value={t.id}>
               {t.protocol_name}
+              {t.kind === "avulso" ? " · por sessão" : ""}
             </option>
           ))}
         </select>

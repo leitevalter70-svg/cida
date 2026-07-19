@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
+import { weeklyDueDate } from "@/lib/data/pending-payments"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { calculateSplit, isCardPayment } from "@/lib/finance/split"
 import { adherencePercent } from "@/lib/clinical/chance"
@@ -301,8 +302,26 @@ export async function createSession(formData: FormData) {
   }
 
   const patientId = String(formData.get("patient_id"))
+  const treatmentId = (formData.get("treatment_id") as string) || ""
+  let offerSessionPayment = false
+  if (treatmentId) {
+    const { data: treatment } = await supabase
+      .from("treatments")
+      .select("kind")
+      .eq("id", treatmentId)
+      .eq("user_id", userId)
+      .maybeSingle()
+    offerSessionPayment = treatment?.kind === "avulso"
+  }
+
   revalidatePath(`/pacientes/${patientId}`)
   revalidatePath("/dashboard")
+  return {
+    id: session.id as string,
+    patientId,
+    treatmentId,
+    offerSessionPayment,
+  }
 }
 
 export async function createTreatment(formData: FormData) {
@@ -331,6 +350,9 @@ export async function createTreatment(formData: FormData) {
   if (error) throw new Error(error.message)
 
   if (kind === "pacote") {
+    const startedAt = String(
+      formData.get("started_at") || new Date().toISOString().slice(0, 10),
+    )
     const each = Math.round((totalAmount / installmentCount) * 100) / 100
     const rows = Array.from({ length: installmentCount }, (_, i) => {
       const isLast = i === installmentCount - 1
@@ -342,6 +364,7 @@ export async function createTreatment(formData: FormData) {
         treatment_id: treatment.id,
         sequence_number: i + 1,
         amount,
+        due_date: weeklyDueDate(startedAt, i + 1),
         status: "pendente" as const,
       }
     })
@@ -355,6 +378,7 @@ export async function createTreatment(formData: FormData) {
     .eq("id", patientId)
     .eq("user_id", userId)
 
+  revalidatePath("/", "layout")
   revalidatePath("/tratamentos")
   revalidatePath("/receitas")
   revalidatePath(`/pacientes/${patientId}`)
@@ -364,13 +388,16 @@ export async function createTreatment(formData: FormData) {
 export async function createRevenue(formData: FormData) {
   const { supabase, userId } = await getUserId()
   const payload = await buildRevenuePayload(formData, userId, supabase)
+  await assertRevenueLinksAvailable(supabase, userId, payload)
 
   const { error } = await supabase.from("revenues").insert({
     user_id: userId,
     ...payload,
   })
 
-  if (error) throw new Error(error.message)
+  if (error) {
+    throw new Error(friendlyRevenueLinkError(error.message))
+  }
 
   const installmentId = payload.installment_id || ""
   if (installmentId) {
@@ -382,6 +409,7 @@ export async function createRevenue(formData: FormData) {
   }
 
   const patientId = payload.patient_id || ""
+  revalidatePath("/", "layout")
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
@@ -394,7 +422,7 @@ export async function updateRevenue(revenueId: string, formData: FormData) {
 
   const { data: current, error: currentError } = await supabase
     .from("revenues")
-    .select("id, installment_id, patient_id")
+    .select("id, installment_id, patient_id, session_id")
     .eq("id", revenueId)
     .eq("user_id", userId)
     .single()
@@ -404,13 +432,17 @@ export async function updateRevenue(revenueId: string, formData: FormData) {
   }
 
   const payload = await buildRevenuePayload(formData, userId, supabase)
+  await assertRevenueLinksAvailable(supabase, userId, payload, revenueId)
+
   const { error } = await supabase
     .from("revenues")
     .update(payload)
     .eq("id", revenueId)
     .eq("user_id", userId)
 
-  if (error) throw new Error(error.message)
+  if (error) {
+    throw new Error(friendlyRevenueLinkError(error.message))
+  }
 
   const oldInstallmentId = current.installment_id || ""
   const newInstallmentId = payload.installment_id || ""
@@ -432,6 +464,7 @@ export async function updateRevenue(revenueId: string, formData: FormData) {
   }
 
   const patientId = payload.patient_id || current.patient_id || ""
+  revalidatePath("/", "layout")
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
@@ -469,6 +502,7 @@ export async function deleteRevenue(revenueId: string) {
       .eq("user_id", userId)
   }
 
+  revalidatePath("/", "layout")
   revalidatePath("/receitas")
   revalidatePath("/dashboard")
   revalidatePath("/tratamentos")
@@ -529,11 +563,46 @@ async function buildRevenuePayload(
       ? String(settledFromForm)
       : computeSettledAt(revenueDate, paymentMethod, creditDays)
 
+  const treatmentId = (formData.get("treatment_id") as string) || null
+  let installmentId = (formData.get("installment_id") as string) || null
+  let sessionId = (formData.get("session_id") as string) || null
+
+  // Pacote e avulso não misturam: um lançamento ou baixa parcela ou paga sessão.
+  if (installmentId && sessionId) {
+    sessionId = null
+  }
+
+  if (treatmentId) {
+    const { data: treatment } = await supabase
+      .from("treatments")
+      .select("id, kind")
+      .eq("id", treatmentId)
+      .eq("user_id", userId)
+      .maybeSingle()
+
+    if (treatment?.kind === "pacote") {
+      sessionId = null
+      if (!installmentId) {
+        throw new Error(
+          "No pacote, vincule uma parcela. Isso evita duplicar o valor total na prestação de contas.",
+        )
+      }
+    }
+    if (treatment?.kind === "avulso") {
+      installmentId = null
+      if (!sessionId) {
+        throw new Error(
+          "No avulso, vincule a sessão paga para não lançar o mesmo pagamento duas vezes.",
+        )
+      }
+    }
+  }
+
   return {
     patient_id: (formData.get("patient_id") as string) || null,
-    treatment_id: (formData.get("treatment_id") as string) || null,
-    installment_id: (formData.get("installment_id") as string) || null,
-    session_id: (formData.get("session_id") as string) || null,
+    treatment_id: treatmentId,
+    installment_id: installmentId,
+    session_id: sessionId,
     revenue_date: revenueDate,
     settled_at: settledAt,
     description: (formData.get("description") as string) || null,
@@ -552,6 +621,61 @@ async function buildRevenuePayload(
     clinic_net_amount: split.clinicNetAmount,
     professional_net_amount: split.professionalNetAmount,
   }
+}
+
+async function assertRevenueLinksAvailable(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  payload: { installment_id: string | null; session_id: string | null },
+  excludeRevenueId?: string,
+) {
+  if (payload.installment_id) {
+    let query = supabase
+      .from("revenues")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("installment_id", payload.installment_id)
+      .limit(1)
+    if (excludeRevenueId) query = query.neq("id", excludeRevenueId)
+    const { data } = await query
+    if (data && data.length > 0) {
+      throw new Error(
+        "Esta parcela já tem receita lançada. Corrija a existente em vez de criar outra.",
+      )
+    }
+  }
+
+  if (payload.session_id) {
+    let query = supabase
+      .from("revenues")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("session_id", payload.session_id)
+      .limit(1)
+    if (excludeRevenueId) query = query.neq("id", excludeRevenueId)
+    const { data } = await query
+    if (data && data.length > 0) {
+      throw new Error(
+        "Esta sessão já foi paga. Corrija o lançamento existente para não duplicar na prestação.",
+      )
+    }
+  }
+}
+
+function friendlyRevenueLinkError(message: string) {
+  if (
+    message.includes("revenues_installment_id_unique") ||
+    message.includes("installment_id")
+  ) {
+    return "Esta parcela já tem receita lançada. Corrija a existente em vez de criar outra."
+  }
+  if (
+    message.includes("revenues_session_id_unique") ||
+    message.includes("session_id")
+  ) {
+    return "Esta sessão já foi paga. Corrija o lançamento existente para não duplicar na prestação."
+  }
+  return message
 }
 
 export async function createExpense(formData: FormData) {

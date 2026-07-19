@@ -1,10 +1,12 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SetupNotice } from "@/components/setup-notice"
+import { PendingPaymentsAlert } from "@/components/pending-payments-alert"
+import { fetchPendingPaymentAlerts } from "@/lib/data/pending-payments"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 
 export const dynamic = "force-dynamic"
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode
@@ -27,11 +29,16 @@ export default function AppLayout({
     )
   }
 
+  const pendingPayments = await fetchPendingPaymentAlerts()
+
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <AppSidebar />
       <main className="flex-1 overflow-x-hidden bg-gradient-to-br from-background via-background to-secondary/30 px-5 py-6 md:px-8 md:py-8">
-        <div className="mx-auto w-full max-w-6xl">{children}</div>
+        <div className="mx-auto w-full max-w-6xl">
+          <PendingPaymentsAlert items={pendingPayments} />
+          {children}
+        </div>
       </main>
     </div>
   )
