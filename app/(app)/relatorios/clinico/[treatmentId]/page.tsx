@@ -255,9 +255,6 @@ export default async function RelatorioClinicoPage({
             <h1 className="text-2xl font-bold tracking-tight">
               Relatório clínico
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Para a paciente · sem dados financeiros
-            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Badge variant="secondary">{patient.full_name}</Badge>
               <Badge variant="outline">{treatment.protocol_name}</Badge>
