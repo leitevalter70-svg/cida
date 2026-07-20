@@ -49,10 +49,9 @@ export function AppSidebar() {
           <PhysioSymbol className="size-6" solid />
         </div>
         <div className="leading-tight">
-          <p className="text-base font-bold tracking-tight text-foreground">
-            Cida
+          <p className="text-base font-bold tracking-tight text-foreground uppercase">
+            Fisioterapia
           </p>
-          <p className="text-xs text-muted-foreground">Fisioterapia</p>
         </div>
       </div>
 

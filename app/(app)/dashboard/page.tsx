@@ -35,7 +35,7 @@ export default async function DashboardPage({
           </div>
           <div>
             <p className="text-xs font-semibold tracking-[0.14em] text-primary uppercase">
-              Cida · Fisioterapia
+              Fisioterapia
             </p>
             <h1 className="mt-0.5 text-2xl font-bold tracking-tight sm:text-3xl">
               Dashboard
