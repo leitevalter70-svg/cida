@@ -45,85 +45,94 @@ export async function fetchPendingPaymentAlerts(): Promise<
 > {
   if (!isSupabaseConfigured()) return []
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return []
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return []
 
-  const today = todayISO()
+    const today = todayISO()
 
-  const [{ data: treatments }, { data: installments }, { data: patients }] =
-    await Promise.all([
-      supabase
-        .from("treatments")
-        .select(
-          "id, patient_id, protocol_name, installment_count, status, started_at",
-        )
-        .eq("user_id", user.id)
-        .eq("kind", "pacote")
-        .eq("status", "ativo"),
-      supabase
-        .from("installments")
-        .select(
-          "id, treatment_id, sequence_number, amount, due_date, status",
-        )
-        .eq("user_id", user.id)
-        .neq("status", "paga")
-        .order("sequence_number", { ascending: true }),
-      supabase.from("patients").select("id, full_name").eq("user_id", user.id),
-    ])
+    const [{ data: treatments }, { data: installments }, { data: patients }] =
+      await Promise.all([
+        supabase
+          .from("treatments")
+          .select(
+            "id, patient_id, protocol_name, installment_count, status, started_at",
+          )
+          .eq("user_id", user.id)
+          .eq("kind", "pacote")
+          .eq("status", "ativo"),
+        supabase
+          .from("installments")
+          .select(
+            "id, treatment_id, sequence_number, amount, due_date, status",
+          )
+          .eq("user_id", user.id)
+          .neq("status", "paga")
+          .order("sequence_number", { ascending: true }),
+        supabase
+          .from("patients")
+          .select("id, full_name")
+          .eq("user_id", user.id),
+      ])
 
-  const patientMap = new Map(
-    (patients ?? []).map((p) => [p.id, p.full_name as string]),
-  )
-  const activeTreatments = (treatments ?? []).filter((t) =>
-    patientMap.has(t.patient_id),
-  )
-  const treatmentMap = new Map(activeTreatments.map((t) => [t.id, t]))
+    const patientMap = new Map(
+      (patients ?? []).map((p) => [p.id, p.full_name as string]),
+    )
+    const activeTreatments = (treatments ?? []).filter((t) =>
+      patientMap.has(t.patient_id),
+    )
+    const treatmentMap = new Map(activeTreatments.map((t) => [t.id, t]))
 
-  const nextByTreatment = new Map<string, (typeof installments)[number]>()
-  for (const inst of installments ?? []) {
-    if (!treatmentMap.has(inst.treatment_id)) continue
-    if (!nextByTreatment.has(inst.treatment_id)) {
-      nextByTreatment.set(inst.treatment_id, inst)
+    const nextByTreatment = new Map<string, (typeof installments)[number]>()
+    for (const inst of installments ?? []) {
+      if (!treatmentMap.has(inst.treatment_id)) continue
+      if (!nextByTreatment.has(inst.treatment_id)) {
+        nextByTreatment.set(inst.treatment_id, inst)
+      }
     }
-  }
 
-  const weekLimit = format(addWeeks(parseISO(today), 1), "yyyy-MM-dd")
-  const items: PendingPaymentAlertItem[] = []
+    const weekLimit = format(addWeeks(parseISO(today), 1), "yyyy-MM-dd")
+    const items: PendingPaymentAlertItem[] = []
 
-  for (const [treatmentId, inst] of nextByTreatment) {
-    const treatment = treatmentMap.get(treatmentId)!
-    const dueDate =
-      inst.due_date ||
-      (treatment.started_at
-        ? weeklyDueDate(treatment.started_at, inst.sequence_number)
-        : null)
-    const urgency = urgencyFor(dueDate, inst.status, today)
+    for (const [treatmentId, inst] of nextByTreatment) {
+      const treatment = treatmentMap.get(treatmentId)!
+      const dueDate =
+        inst.due_date ||
+        (treatment.started_at
+          ? weeklyDueDate(treatment.started_at, inst.sequence_number)
+          : null)
+      const urgency = urgencyFor(dueDate, inst.status, today)
 
-    // Só alertar o que já venceu, vence hoje ou nesta semana.
-    if (urgency === "pendente") continue
-    if (dueDate && dueDate > weekLimit) continue
+      // Só alertar o que já venceu, vence hoje ou nesta semana.
+      if (urgency === "pendente") continue
+      if (dueDate && dueDate > weekLimit) continue
 
-    items.push({
-      installmentId: inst.id,
-      treatmentId,
-      patientId: treatment.patient_id,
-      patientName: patientMap.get(treatment.patient_id) || "Paciente",
-      protocolName: treatment.protocol_name,
-      sequenceNumber: inst.sequence_number,
-      installmentCount: treatment.installment_count,
-      amount: Number(inst.amount),
-      dueDate,
-      urgency,
+      items.push({
+        installmentId: inst.id,
+        treatmentId,
+        patientId: treatment.patient_id,
+        patientName:
+          patientMap.get(treatment.patient_id) || "Paciente",
+        protocolName: treatment.protocol_name,
+        sequenceNumber: inst.sequence_number,
+        installmentCount: treatment.installment_count,
+        amount: Number(inst.amount),
+        dueDate,
+        urgency,
+      })
+    }
+
+    const order = { atrasada: 0, hoje: 1, semana: 2, pendente: 3 } as const
+    return items.sort((a, b) => {
+      const byUrgency = order[a.urgency] - order[b.urgency]
+      if (byUrgency !== 0) return byUrgency
+      return (a.dueDate || "").localeCompare(b.dueDate || "")
     })
+  } catch (err) {
+    console.error("fetchPendingPaymentAlerts failed:", err)
+    return []
   }
-
-  const order = { atrasada: 0, hoje: 1, semana: 2, pendente: 3 } as const
-  return items.sort((a, b) => {
-    const byUrgency = order[a.urgency] - order[b.urgency]
-    if (byUrgency !== 0) return byUrgency
-    return (a.dueDate || "").localeCompare(b.dueDate || "")
-  })
 }

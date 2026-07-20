@@ -29,7 +29,15 @@ export default async function AppLayout({
     )
   }
 
-  const pendingPayments = await fetchPendingPaymentAlerts()
+  // Não deixe que falhas de autenticação/consulta do Supabase quebrem páginas
+  // importantes (ex.: relatório clínico). Se falhar, apenas ocultamos o alerta.
+  let pendingPayments = []
+  try {
+    pendingPayments = await fetchPendingPaymentAlerts()
+  } catch (err) {
+    console.error("fetchPendingPaymentAlerts failed:", err)
+    pendingPayments = []
+  }
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
