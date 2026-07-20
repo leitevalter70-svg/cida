@@ -1,7 +1,10 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SetupNotice } from "@/components/setup-notice"
 import { PendingPaymentsAlert } from "@/components/pending-payments-alert"
-import { fetchPendingPaymentAlerts } from "@/lib/data/pending-payments"
+import {
+  fetchPendingPaymentAlerts,
+  type PendingPaymentAlertItem,
+} from "@/lib/data/pending-payments"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 
 export const dynamic = "force-dynamic"
@@ -31,7 +34,7 @@ export default async function AppLayout({
 
   // Não deixe que falhas de autenticação/consulta do Supabase quebrem páginas
   // importantes (ex.: relatório clínico). Se falhar, apenas ocultamos o alerta.
-  let pendingPayments = []
+  let pendingPayments: PendingPaymentAlertItem[] = []
   try {
     pendingPayments = await fetchPendingPaymentAlerts()
   } catch (err) {

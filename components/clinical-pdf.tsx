@@ -21,6 +21,13 @@ import {
 } from "docx"
 import { Button } from "@/components/ui/button"
 import { PHYSIO_SYMBOL_PATHS } from "@/components/physio-symbol"
+import {
+  clinicalReportFileBaseName,
+  formatSessionLine,
+  type ClinicalPdfData,
+} from "@/lib/clinical/report-export"
+
+export type { ClinicalPdfData, ClinicalPdfSession } from "@/lib/clinical/report-export"
 
 const BRAND = "#2a6f77"
 
@@ -147,61 +154,6 @@ function PhysioSymbolPdf() {
   )
 }
 
-export type ClinicalPdfSession = {
-  date: string
-  scale: number | null
-  complaint: string | null
-  procedures: string | null
-  devices: string[]
-  accessRoute: string | null
-  deviceNotes: string | null
-  patientResponse: string | null
-  nextStep: string | null
-}
-
-export type ClinicalPdfData = {
-  patientName: string
-  age: number | null
-  sex: string | null
-  phone: string | null
-  email: string | null
-  patientNotes: string | null
-  patientStatus: string | null
-  protocolName: string | null
-  complaint: string | null
-  periodStart: string | null
-  periodEnd: string | null
-  sessionsPlanned: number | null
-  sessionsDone: number | null
-  adherence: number | null
-  scaleStart: number | null
-  scaleEnd: number | null
-  devicesSummary: string | null
-  chanceSummary: string | null
-  synthesis: string | null
-  maintenance: string | null
-  disclaimer: string
-  professionalName: string
-  crefitoLine: string
-  sessions: ClinicalPdfSession[]
-}
-
-/** Compact one-line summary for a session (UI + PDF + Word). */
-export function formatSessionLine(
-  index: number,
-  s: ClinicalPdfSession,
-): string {
-  const parts: string[] = [`${index + 1}. ${s.date}`]
-  if (s.scale != null) parts.push(`Esc. ${s.scale}`)
-  if (s.complaint) parts.push(s.complaint)
-  if (s.procedures) parts.push(s.procedures.replace(/\s+/g, " ").trim())
-  if (s.devices.length > 0) parts.push(s.devices.join(", "))
-  if (s.accessRoute) parts.push(s.accessRoute)
-  if (s.patientResponse)
-    parts.push(s.patientResponse.replace(/\s+/g, " ").trim())
-  return parts.join(" · ")
-}
-
 function Field({
   label,
   value,
@@ -307,10 +259,6 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
   )
 }
 
-function fileBaseName(patientName: string) {
-  return `relatorio-clinico-${patientName.replace(/\s+/g, "-").toLowerCase()}`
-}
-
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
@@ -323,7 +271,7 @@ function downloadBlob(blob: Blob, filename: string) {
 export function DownloadClinicalPdfButton({ data }: { data: ClinicalPdfData }) {
   async function handleDownload() {
     const blob = await pdf(<ClinicalDocument data={data} />).toBlob()
-    downloadBlob(blob, `${fileBaseName(data.patientName)}.pdf`)
+    downloadBlob(blob, `${clinicalReportFileBaseName(data.patientName)}.pdf`)
   }
 
   return (
@@ -533,7 +481,7 @@ export function DownloadClinicalWordButton({ data }: { data: ClinicalPdfData }) 
   async function handleDownload() {
     const doc = buildWordDocument(data)
     const blob = await Packer.toBlob(doc)
-    downloadBlob(blob, `${fileBaseName(data.patientName)}.docx`)
+    downloadBlob(blob, `${clinicalReportFileBaseName(data.patientName)}.docx`)
   }
 
   return (

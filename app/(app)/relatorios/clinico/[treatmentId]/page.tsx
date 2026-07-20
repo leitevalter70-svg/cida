@@ -7,9 +7,11 @@ import { ClinicalReportEditor } from "@/components/forms/clinical-report-editor"
 import {
   DownloadClinicalPdfButton,
   DownloadClinicalWordButton,
+} from "@/components/clinical-pdf"
+import {
   formatSessionLine,
   type ClinicalPdfData,
-} from "@/components/clinical-pdf"
+} from "@/lib/clinical/report-export"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { PhysioSymbol } from "@/components/physio-symbol"
