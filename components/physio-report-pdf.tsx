@@ -21,6 +21,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { PHYSIO_SYMBOL_PATHS } from "@/components/physio-symbol"
 import { physioReportFileBaseName } from "@/lib/clinical/urogineco"
+import {
+  DEFAULT_CREFITO,
+  DEFAULT_PROFESSIONAL_NAME,
+  formatCrefitoLine,
+} from "@/lib/professional"
 
 export type PhysioReportPdfData = {
   patientName: string
@@ -82,18 +87,31 @@ const styles = StyleSheet.create({
     color: BRAND,
   },
   signature: {
-    marginTop: 28,
-    paddingTop: 10,
+    marginTop: 36,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: "#d5e0e0",
   },
   signatureName: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: "Helvetica-Bold",
-    marginBottom: 2,
+    marginBottom: 3,
+    color: "#1f2a2e",
   },
-  signatureMeta: { fontSize: 9, color: "#5a6b70" },
+  signatureMeta: { fontSize: 10, color: "#5a6b70", marginBottom: 2 },
 })
+
+function resolveSignature(data: PhysioReportPdfData) {
+  const professionalName =
+    data.professionalName?.trim() || DEFAULT_PROFESSIONAL_NAME
+  const crefitoRaw = data.crefitoLine?.trim()
+  const crefitoLine = crefitoRaw
+    ? /^CREFITO/i.test(crefitoRaw)
+      ? crefitoRaw
+      : formatCrefitoLine(crefitoRaw)
+    : formatCrefitoLine(DEFAULT_CREFITO)
+  return { professionalName, crefitoLine }
+}
 
 function PhysioSymbolPdf() {
   const p = PHYSIO_SYMBOL_PATHS
@@ -132,6 +150,7 @@ function PhysioSymbolPdf() {
 }
 
 function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
+  const signature = resolveSignature(data)
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -154,8 +173,8 @@ function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
         <Text style={styles.paragraph}>{data.guidanceText}</Text>
 
         <View style={styles.signature}>
-          <Text style={styles.signatureName}>{data.professionalName}</Text>
-          <Text style={styles.signatureMeta}>{data.crefitoLine}</Text>
+          <Text style={styles.signatureName}>{signature.professionalName}</Text>
+          <Text style={styles.signatureMeta}>{signature.crefitoLine}</Text>
           <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
         </View>
       </Page>
@@ -195,6 +214,7 @@ export function DownloadPhysioReportWordButton({
   data: PhysioReportPdfData
 }) {
   async function handleDownload() {
+    const signature = resolveSignature(data)
     const doc = new DocxDocument({
       sections: [
         {
@@ -241,17 +261,26 @@ export function DownloadPhysioReportWordButton({
             new Paragraph({ text: data.guidanceText, spacing: { after: 280 } }),
             new Paragraph({
               children: [
-                new TextRun({ text: data.professionalName, bold: true }),
+                new TextRun({
+                  text: signature.professionalName,
+                  bold: true,
+                  size: 22,
+                }),
+              ],
+              spacing: { before: 200 },
+            }),
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: signature.crefitoLine,
+                  size: 20,
+                  color: "5A6B70",
+                }),
               ],
             }),
             new Paragraph({
               children: [
-                new TextRun({ text: data.crefitoLine, size: 18, color: "5A6B70" }),
-              ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({ text: "Fisioterapeuta", size: 18, color: "5A6B70" }),
+                new TextRun({ text: "Fisioterapeuta", size: 20, color: "5A6B70" }),
               ],
             }),
           ],

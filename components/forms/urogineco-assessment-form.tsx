@@ -1255,6 +1255,20 @@ export function UroginecoAssessmentForm({
               onChange={(e) => setReportGuidance(e.target.value)}
             />
           </div>
+          <Section title="Assinatura (final do relatório)">
+            <div className="space-y-1 border-t border-border/60 pt-3">
+              <p className="text-sm font-semibold text-foreground">
+                {credentials.professionalName}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {credentials.crefitoLine}
+              </p>
+              <p className="text-sm text-muted-foreground">Fisioterapeuta</p>
+              <p className="pt-1 text-xs text-muted-foreground">
+                Nome e CREFITO vêm de Configurações e entram no PDF/Word.
+              </p>
+            </div>
+          </Section>
           <div className="flex flex-wrap gap-2">
             <Button type="button" disabled={pending} onClick={saveReport}>
               {pending ? "Salvando…" : "Salvar relatório no Supabase"}
