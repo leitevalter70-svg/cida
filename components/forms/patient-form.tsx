@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { createPatient, updatePatient } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
@@ -8,9 +8,33 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  COMPLAINT_FOCUSES,
   resolveComplaintOptions,
   type ComplaintOption,
 } from "@/lib/clinical/complaints"
+
+function isKnownComplaintValue(
+  value: string | null | undefined,
+  optionValues: string[],
+) {
+  if (!value?.trim()) return false
+  const v = value.trim().toLowerCase()
+  return optionValues.some((o) => o.toLowerCase() === v)
+}
+
+function initialComplaintSelection(
+  saved: string | null | undefined,
+  optionValues: string[],
+) {
+  if (!saved?.trim()) return ""
+  if (isKnownComplaintValue(saved, optionValues) && saved.trim().toLowerCase() !== "outro") {
+    const match = optionValues.find(
+      (o) => o.toLowerCase() === saved.trim().toLowerCase(),
+    )
+    return match ?? saved
+  }
+  return "Outro"
+}
 
 export function PatientForm({
   patient,
@@ -33,15 +57,47 @@ export function PatientForm({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const options = resolveComplaintOptions(
-    (complaintOptions ?? []).map((o) => o.value),
-    patient?.complaint_focus,
+  const options = useMemo(
+    () =>
+      resolveComplaintOptions(
+        (complaintOptions ?? []).map((o) => o.value),
+      ),
+    [complaintOptions],
   )
+  const [complaintSelect, setComplaintSelect] = useState(() =>
+    initialComplaintSelection(patient?.complaint_focus, [
+      ...COMPLAINT_FOCUSES.map((c) => c.value),
+      ...(complaintOptions ?? []).map((o) => o.value),
+    ]),
+  )
+  const [complaintOther, setComplaintOther] = useState(() => {
+    const saved = patient?.complaint_focus?.trim() ?? ""
+    if (!saved) return ""
+    if (saved.toLowerCase() === "outro") return ""
+    const known = [
+      ...COMPLAINT_FOCUSES.map((c) => c.value),
+      ...(complaintOptions ?? []).map((o) => o.value),
+    ]
+    return isKnownComplaintValue(saved, known) ? "" : saved
+  })
+  const showOtherField = complaintSelect === "Outro"
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = e.currentTarget
     const fd = new FormData(form)
+
+    if (complaintSelect === "Outro") {
+      const other = complaintOther.trim()
+      if (!other) {
+        setError("Informe a queixa por escrito na opção Outro.")
+        return
+      }
+      fd.set("complaint_focus", other)
+    } else {
+      fd.set("complaint_focus", complaintSelect)
+    }
+
     setError(null)
     startTransition(async () => {
       try {
@@ -117,9 +173,9 @@ export function PatientForm({
         <Label htmlFor="complaint_focus">Queixa / foco</Label>
         <select
           id="complaint_focus"
-          name="complaint_focus"
           required
-          defaultValue={patient?.complaint_focus ?? ""}
+          value={complaintSelect}
+          onChange={(e) => setComplaintSelect(e.target.value)}
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
         >
           <option value="" disabled>
@@ -131,6 +187,19 @@ export function PatientForm({
             </option>
           ))}
         </select>
+        {showOtherField && (
+          <div className="space-y-1.5 pt-1">
+            <Label htmlFor="complaint_other">Descreva a queixa</Label>
+            <Textarea
+              id="complaint_other"
+              value={complaintOther}
+              onChange={(e) => setComplaintOther(e.target.value)}
+              required
+              placeholder="Ex.: constipação crônica, fístula, cicatriz de episiotomia…"
+              rows={2}
+            />
+          </div>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
