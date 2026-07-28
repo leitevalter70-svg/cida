@@ -7,6 +7,13 @@ import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { calculateSplit, isCardPayment } from "@/lib/finance/split"
 import { adherencePercent } from "@/lib/clinical/chance"
 import {
+  buildPhysioReportDraft,
+  mergeAnamnese,
+  mergePhysicalExam,
+  type UroginecoAnamnese,
+  type UroginecoPhysicalExam,
+} from "@/lib/clinical/urogineco"
+import {
   computeSettledAt,
   DEFAULT_CREFITO,
   DEFAULT_PROFESSIONAL_NAME,
@@ -987,4 +994,168 @@ export async function updateClinicalReport(reportId: string, formData: FormData)
     .eq("user_id", userId)
   if (error) throw new Error(error.message)
   revalidatePath(`/relatorios/clinico/${formData.get("treatment_id")}`)
+}
+
+export async function upsertUroginecoAssessment(
+  patientId: string,
+  payload: {
+    assessment_date: string
+    anamnese: UroginecoAnamnese
+    physical_exam: UroginecoPhysicalExam
+  },
+) {
+  const { supabase, userId } = await getUserId()
+
+  const { data: patient, error: pErr } = await supabase
+    .from("patients")
+    .select("id, full_name, age_years, sex, complaint_focus")
+    .eq("id", patientId)
+    .eq("user_id", userId)
+    .single()
+  if (pErr || !patient) throw new Error("Paciente não encontrado")
+
+  const anamnese = mergeAnamnese(payload.anamnese)
+  const physical_exam = mergePhysicalExam(payload.physical_exam)
+  const assessment_date =
+    payload.assessment_date || new Date().toISOString().slice(0, 10)
+
+  const { data: existing } = await supabase
+    .from("urogineco_assessments")
+    .select(
+      "id, report_anamnese_text, report_exam_text, report_proposal_text, report_guidance_text",
+    )
+    .eq("patient_id", patientId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  const draft = buildPhysioReportDraft(
+    {
+      full_name: patient.full_name,
+      age_years: patient.age_years,
+      sex: patient.sex,
+      complaint_focus: patient.complaint_focus,
+    },
+    anamnese,
+    physical_exam,
+  )
+
+  const row = {
+    user_id: userId,
+    patient_id: patientId,
+    assessment_date,
+    anamnese,
+    physical_exam,
+    report_anamnese_text:
+      existing?.report_anamnese_text?.trim() || draft.anamneseText,
+    report_exam_text: existing?.report_exam_text?.trim() || draft.examText,
+    report_proposal_text:
+      existing?.report_proposal_text?.trim() || draft.proposalText,
+    report_guidance_text:
+      existing?.report_guidance_text?.trim() || draft.guidanceText,
+  }
+
+  const { error } = await supabase
+    .from("urogineco_assessments")
+    .upsert(row, { onConflict: "patient_id" })
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/pacientes/${patientId}`)
+}
+
+export async function upsertUroginecoReportTexts(
+  patientId: string,
+  payload: {
+    report_anamnese_text: string
+    report_exam_text: string
+    report_proposal_text: string
+    report_guidance_text: string
+  },
+) {
+  const { supabase, userId } = await getUserId()
+
+  const { data: patient, error: pErr } = await supabase
+    .from("patients")
+    .select("id")
+    .eq("id", patientId)
+    .eq("user_id", userId)
+    .single()
+  if (pErr || !patient) throw new Error("Paciente não encontrado")
+
+  const { data: existing } = await supabase
+    .from("urogineco_assessments")
+    .select("id, assessment_date, anamnese, physical_exam")
+    .eq("patient_id", patientId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  const { error } = await supabase.from("urogineco_assessments").upsert(
+    {
+      user_id: userId,
+      patient_id: patientId,
+      assessment_date:
+        existing?.assessment_date || new Date().toISOString().slice(0, 10),
+      anamnese: mergeAnamnese(existing?.anamnese),
+      physical_exam: mergePhysicalExam(existing?.physical_exam),
+      report_anamnese_text: payload.report_anamnese_text || null,
+      report_exam_text: payload.report_exam_text || null,
+      report_proposal_text: payload.report_proposal_text || null,
+      report_guidance_text: payload.report_guidance_text || null,
+    },
+    { onConflict: "patient_id" },
+  )
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/pacientes/${patientId}`)
+}
+
+export async function regenerateUroginecoReportDraft(patientId: string) {
+  const { supabase, userId } = await getUserId()
+
+  const { data: patient, error: pErr } = await supabase
+    .from("patients")
+    .select("id, full_name, age_years, sex, complaint_focus")
+    .eq("id", patientId)
+    .eq("user_id", userId)
+    .single()
+  if (pErr || !patient) throw new Error("Paciente não encontrado")
+
+  const { data: existing } = await supabase
+    .from("urogineco_assessments")
+    .select("assessment_date, anamnese, physical_exam")
+    .eq("patient_id", patientId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  const anamnese = mergeAnamnese(existing?.anamnese)
+  const physical_exam = mergePhysicalExam(existing?.physical_exam)
+  const draft = buildPhysioReportDraft(
+    {
+      full_name: patient.full_name,
+      age_years: patient.age_years,
+      sex: patient.sex,
+      complaint_focus: patient.complaint_focus,
+    },
+    anamnese,
+    physical_exam,
+  )
+
+  const { error } = await supabase.from("urogineco_assessments").upsert(
+    {
+      user_id: userId,
+      patient_id: patientId,
+      assessment_date:
+        existing?.assessment_date || new Date().toISOString().slice(0, 10),
+      anamnese,
+      physical_exam,
+      report_anamnese_text: draft.anamneseText,
+      report_exam_text: draft.examText,
+      report_proposal_text: draft.proposalText,
+      report_guidance_text: draft.guidanceText,
+    },
+    { onConflict: "patient_id" },
+  )
+  if (error) throw new Error(error.message)
+
+  revalidatePath(`/pacientes/${patientId}`)
+  return draft
 }

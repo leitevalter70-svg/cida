@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { isSupabaseConfigured } from "@/lib/supabase/config"
 import { SetupNotice } from "@/components/setup-notice"
 import { PatientForm } from "@/components/forms/patient-form"
+import { UroginecoAssessmentForm } from "@/components/forms/urogineco-assessment-form"
 import { SessionForm } from "@/components/forms/session-form"
 import { PatientRevenuePanel } from "@/components/forms/revenue-form"
 import { DeletePatientButton } from "@/components/forms/delete-patient-button"
@@ -21,7 +22,7 @@ import {
   complaintLabel,
   resolveComplaintOptions,
 } from "@/lib/clinical/complaints"
-import { resolveCredentials } from "@/lib/professional"
+import { resolveCredentials, formatCrefitoLine } from "@/lib/professional"
 import { cn } from "@/lib/utils"
 import { notFound } from "next/navigation"
 
@@ -73,6 +74,7 @@ export default async function PacienteDetailPage({
     { data: reports },
     { data: revenues },
     { data: reportDefaults },
+    { data: urogineco },
   ] = await Promise.all([
     supabase
       .from("sessions")
@@ -104,6 +106,11 @@ export default async function PacienteDetailPage({
       .eq("patient_id", id)
       .order("revenue_date", { ascending: false }),
     supabase.from("report_defaults").select("*").maybeSingle(),
+    supabase
+      .from("urogineco_assessments")
+      .select("*")
+      .eq("patient_id", id)
+      .maybeSingle(),
   ])
 
   const installments = (treatments ?? []).flatMap(
@@ -240,6 +247,36 @@ export default async function PacienteDetailPage({
           <PatientForm
             patient={patient}
             complaintOptions={complaintOptions}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Avaliação uroginecológica
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <UroginecoAssessmentForm
+            patientId={patient.id}
+            patientName={patient.full_name}
+            patientAge={patient.age_years}
+            patientSex={patient.sex}
+            complaintFocus={patient.complaint_focus}
+            assessmentDate={urogineco?.assessment_date ?? null}
+            initialAnamnese={urogineco?.anamnese}
+            initialExam={urogineco?.physical_exam}
+            initialReport={{
+              anamneseText: urogineco?.report_anamnese_text ?? null,
+              examText: urogineco?.report_exam_text ?? null,
+              proposalText: urogineco?.report_proposal_text ?? null,
+              guidanceText: urogineco?.report_guidance_text ?? null,
+            }}
+            credentials={{
+              professionalName: credentials.professionalName,
+              crefitoLine: formatCrefitoLine(credentials.crefito),
+            }}
           />
         </CardContent>
       </Card>

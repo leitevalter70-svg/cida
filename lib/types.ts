@@ -191,3 +191,10 @@ export type ClinicalReport = {
   treatment_period_end: string | null
   finalized_at: string | null
 }
+
+export type {
+  UroginecoAnamnese,
+  UroginecoPhysicalExam,
+  UroginecoAssessment,
+  MedicationRow,
+} from "@/lib/clinical/urogineco"
