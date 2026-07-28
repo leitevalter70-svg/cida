@@ -177,7 +177,7 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
         <View style={styles.brandRow}>
           <PhysioSymbolPdf />
           <View style={styles.brandText}>
-            <Text style={styles.brandName}>Cida</Text>
+            <Text style={styles.brandName}>FISIOTERAPIA</Text>
             <Text style={styles.brandTag}>Fisioterapia · saúde da mulher</Text>
           </View>
         </View>
@@ -285,7 +285,7 @@ function buildWordDocument(data: ClinicalPdfData) {
   const children: Paragraph[] = [
     new Paragraph({
       children: [
-        new TextRun({ text: "Cida", bold: true, color: "2A6F77", size: 22 }),
+        new TextRun({ text: "FISIOTERAPIA", bold: true, color: "2A6F77", size: 22 }),
       ],
     }),
     new Paragraph({

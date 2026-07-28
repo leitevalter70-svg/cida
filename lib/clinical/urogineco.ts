@@ -445,10 +445,12 @@ export function describePatientComplaint(
   }
 
   if (anamnese.leak_activities.length) {
-    const acts = labelsFor(LEAK_ACTIVITY_OPTIONS, anamnese.leak_activities)
+    const acts = labelsFor(LEAK_ACTIVITY_OPTIONS, anamnese.leak_activities).filter(
+      (a) => a.toLowerCase() !== "outros",
+    )
     const other = anamnese.leak_activities_other?.trim()
     const actText = other
-      ? joinList([...acts.filter((a) => a !== "Outros"), other])
+      ? joinList([...acts, other])
       : joinList(acts)
     if (actText) bits.push(`perda urinária aos esforços (${actText})`)
   }
@@ -513,8 +515,12 @@ export function buildPhysioReportDraft(
   if (anamnese.iu_severity)
     anamneseBits.push(`incontinência ${anamnese.iu_severity}`)
   if (anamnese.leak_activities.length) {
-    const acts = labelsFor(LEAK_ACTIVITY_OPTIONS, anamnese.leak_activities)
-    anamneseBits.push(`perda aos esforços (${joinList(acts)})`)
+    const acts = labelsFor(LEAK_ACTIVITY_OPTIONS, anamnese.leak_activities).filter(
+      (a) => a.toLowerCase() !== "outros",
+    )
+    const other = anamnese.leak_activities_other?.trim()
+    const actText = other ? joinList([...acts, other]) : joinList(acts)
+    if (actText) anamneseBits.push(`perda aos esforços (${actText})`)
   }
   if (anamnese.pad_use === "sim") {
     anamneseBits.push(
@@ -616,4 +622,9 @@ export function buildPhysioReportDraft(
 
 export function physioReportFileBaseName(patientName: string) {
   return `relatorio-fisioterapeutico-${patientName.replace(/\s+/g, "-").toLowerCase()}`
+}
+
+/** Abertura antiga ainda com "queixa de Outro" do cadastro. */
+export function isStaleOutroOpening(text: string | null | undefined) {
+  return /queixa de\s+outro\b/i.test(text?.trim() || "")
 }

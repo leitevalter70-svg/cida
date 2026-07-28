@@ -9,7 +9,7 @@ const nunito = Nunito_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Cida | Controle de Fisioterapia',
+  title: 'Fisioterapia | Controle clínico e financeiro',
   description:
     'Gestão financeira e acompanhamento clínico para fisioterapia em saúde da mulher',
   icons: {

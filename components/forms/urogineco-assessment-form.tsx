@@ -24,6 +24,7 @@ import {
   buildPhysioReportDraft,
   emptyAnamnese,
   emptyPhysicalExam,
+  isStaleOutroOpening,
   mergeAnamnese,
   mergePhysicalExam,
   type MedicationRow,
@@ -179,9 +180,11 @@ export function UroginecoAssessmentForm({
     ],
   )
 
-  const [reportOpening, setReportOpening] = useState(
-    initialReport.openingText || draft.opening,
-  )
+  const [reportOpening, setReportOpening] = useState(() => {
+    const saved = initialReport.openingText?.trim()
+    if (saved && !isStaleOutroOpening(saved)) return saved
+    return draft.opening
+  })
   const [reportAnamnese, setReportAnamnese] = useState(
     initialReport.anamneseText || draft.anamneseText,
   )

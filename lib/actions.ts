@@ -8,6 +8,7 @@ import { calculateSplit, isCardPayment } from "@/lib/finance/split"
 import { adherencePercent } from "@/lib/clinical/chance"
 import {
   buildPhysioReportDraft,
+  isStaleOutroOpening,
   mergeAnamnese,
   mergePhysicalExam,
   type UroginecoAnamnese,
@@ -1047,7 +1048,10 @@ export async function upsertUroginecoAssessment(
     anamnese,
     physical_exam,
     report_opening_text:
-      existing?.report_opening_text?.trim() || draft.opening,
+      existing?.report_opening_text?.trim() &&
+      !isStaleOutroOpening(existing.report_opening_text)
+        ? existing.report_opening_text.trim()
+        : draft.opening,
     report_anamnese_text:
       existing?.report_anamnese_text?.trim() || draft.anamneseText,
     report_exam_text: existing?.report_exam_text?.trim() || draft.examText,

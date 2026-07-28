@@ -64,7 +64,9 @@ export default function LoginForm() {
           <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
             <Activity className="size-6" />
           </div>
-          <CardTitle className="text-2xl">Cida</CardTitle>
+          <CardTitle className="text-2xl uppercase tracking-tight">
+            Fisioterapia
+          </CardTitle>
           <CardDescription>
             Controle financeiro e clínico para fisioterapia
           </CardDescription>
