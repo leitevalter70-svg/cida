@@ -117,6 +117,7 @@ export function UroginecoAssessmentForm({
   patientAge,
   patientSex,
   complaintFocus,
+  patientNotes,
   assessmentDate,
   initialAnamnese,
   initialExam,
@@ -128,10 +129,12 @@ export function UroginecoAssessmentForm({
   patientAge: number | null
   patientSex: string | null
   complaintFocus: string | null
+  patientNotes: string | null
   assessmentDate: string | null
   initialAnamnese: unknown
   initialExam: unknown
   initialReport: {
+    openingText: string | null
     anamneseText: string | null
     examText: string | null
     proposalText: string | null
@@ -161,13 +164,25 @@ export function UroginecoAssessmentForm({
           age_years: patientAge,
           sex: patientSex,
           complaint_focus: complaintFocus,
+          notes: patientNotes,
         },
         anamnese,
         exam,
       ),
-    [patientName, patientAge, patientSex, complaintFocus, anamnese, exam],
+    [
+      patientName,
+      patientAge,
+      patientSex,
+      complaintFocus,
+      patientNotes,
+      anamnese,
+      exam,
+    ],
   )
 
+  const [reportOpening, setReportOpening] = useState(
+    initialReport.openingText || draft.opening,
+  )
   const [reportAnamnese, setReportAnamnese] = useState(
     initialReport.anamneseText || draft.anamneseText,
   )
@@ -219,6 +234,7 @@ export function UroginecoAssessmentForm({
     startTransition(async () => {
       try {
         await upsertUroginecoReportTexts(patientId, {
+          report_opening_text: reportOpening,
           report_anamnese_text: reportAnamnese,
           report_exam_text: reportExam,
           report_proposal_text: reportProposal,
@@ -238,6 +254,7 @@ export function UroginecoAssessmentForm({
     startTransition(async () => {
       try {
         const d = await regenerateUroginecoReportDraft(patientId)
+        setReportOpening(d.opening)
         setReportAnamnese(d.anamneseText)
         setReportExam(d.examText)
         setReportProposal(d.proposalText)
@@ -252,7 +269,7 @@ export function UroginecoAssessmentForm({
 
   const pdfData = {
     patientName,
-    opening: draft.opening,
+    opening: reportOpening,
     anamneseText: reportAnamnese,
     examText: reportExam,
     proposalText: reportProposal,
@@ -1218,11 +1235,18 @@ export function UroginecoAssessmentForm({
         </TabsContent>
 
         <TabsContent value="relatorio" className="mt-4 space-y-4">
-          <Section title="Pré-visualização (abertura)">
-            <p className="text-sm leading-relaxed text-foreground">
-              {draft.opening}
+          <div className="space-y-1.5">
+            <Label>Abertura (identificação e queixa)</Label>
+            <Textarea
+              rows={3}
+              value={reportOpening}
+              onChange={(e) => setReportOpening(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Montada com cadastro + anamnese (sintomas, diagnóstico, perda).
+              Não usa &quot;Outro&quot; do cadastro. Pode editar à mão.
             </p>
-          </Section>
+          </div>
           <div className="space-y-1.5">
             <Label>Texto da anamnese</Label>
             <Textarea

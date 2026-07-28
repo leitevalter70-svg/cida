@@ -1,5 +1,7 @@
 /** Schema tipado da avaliação uroginecológica (persistido em JSONB no Supabase). */
 
+import { complaintLabel } from "@/lib/clinical/complaints"
+
 export type MedicationRow = {
   name: string
   reason: string
@@ -144,6 +146,7 @@ export type UroginecoAssessment = {
   report_exam_text: string | null
   report_proposal_text: string | null
   report_guidance_text: string | null
+  report_opening_text?: string | null
   created_at: string
   updated_at: string
 }
@@ -318,121 +321,6 @@ const ROMAN: Record<string, string> = {
   "5": "V",
 }
 
-function joinList(items: string[], conj = " e ") {
-  const clean = items.map((s) => s.trim()).filter(Boolean)
-  if (clean.length === 0) return ""
-  if (clean.length === 1) return clean[0]
-  return `${clean.slice(0, -1).join(", ")}${conj}${clean[clean.length - 1]}`
-}
-
-function sexLabel(sex: string | null | undefined) {
-  if (sex === "feminino") return "feminino"
-  if (sex === "masculino") return "masculino"
-  if (sex === "outro") return "outro"
-  return "não informado"
-}
-
-export type PhysioReportPatientInput = {
-  full_name: string
-  age_years: number | null
-  sex: string | null
-  complaint_focus: string | null
-}
-
-export type PhysioReportDraft = {
-  opening: string
-  anamneseText: string
-  examText: string
-  proposalText: string
-  guidanceText: string
-}
-
-/** Monta rascunho narrativo no tom do RELATÓRIO FISIOTERAPÊUTICO. */
-export function buildPhysioReportDraft(
-  patient: PhysioReportPatientInput,
-  anamnese: UroginecoAnamnese,
-  exam: UroginecoPhysicalExam,
-): PhysioReportDraft {
-  const agePart =
-    patient.age_years != null ? `${patient.age_years} anos` : "idade não informada"
-  const complaint =
-    patient.complaint_focus?.trim() ||
-    joinList(anamnese.urinary_symptoms) ||
-    "queixa a esclarecer"
-
-  const opening = `Paciente, ${patient.full_name}, ${agePart}, sexo ${sexLabel(patient.sex)}, com queixa de ${complaint}.`
-
-  const anamneseBits: string[] = []
-  const obst: string[] = []
-  if (anamnese.cesareans) obst.push(`${anamnese.cesareans} cesárea(s)`)
-  if (anamnese.vaginal_births) obst.push(`${anamnese.vaginal_births} parto(s) normal(is)`)
-  if (anamnese.forceps) obst.push(`${anamnese.forceps} fórceps`)
-  if (anamnese.gestations) obst.push(`${anamnese.gestations} gestação(ões)`)
-  if (obst.length) anamneseBits.push(joinList(obst))
-  if (anamnese.symptoms_onset)
-    anamneseBits.push(`sintomas há ${anamnese.symptoms_onset}`)
-  if (anamnese.urine_loss_in_pregnancy === "sim")
-    anamneseBits.push("perda de urina durante a gravidez")
-  if (anamnese.gyn_surgery === "sim")
-    anamneseBits.push(
-      anamnese.gyn_surgery_details
-        ? `cirurgia(s) ginecológica(s): ${anamnese.gyn_surgery_details}`
-        : "cirurgia(s) ginecológica(s)",
-    )
-  if (anamnese.iu_severity)
-    anamneseBits.push(`incontinência ${anamnese.iu_severity}`)
-  if (anamnese.leak_activities.length)
-    anamneseBits.push(
-      `perda aos esforços (${joinList(anamnese.leak_activities)})`,
-    )
-  if (anamnese.prior_physio === "sim")
-    anamneseBits.push("já realizou fisioterapia previamente")
-
-  const anamneseText = anamneseBits.length
-    ? `Inicialmente fizemos uma anamnese onde a paciente relatou ${joinList(anamneseBits)}.`
-    : "Inicialmente fizemos uma anamnese com a paciente."
-
-  const examBits: string[] = []
-  const p = exam.perfect_p.trim()
-  if (p !== "") {
-    const roman = ROMAN[p] ?? p
-    examBits.push(
-      `grau ${roman} de força muscular perineal (P=${p} na escala PERFECT)`,
-    )
-  }
-  if (exam.perfect_f)
-    examBits.push(`contrações rápidas (F=${exam.perfect_f})`)
-  if (exam.accessory_muscles === "sim")
-    examBits.push(
-      exam.accessory_muscles_which
-        ? `utiliza musculatura acessória (${exam.accessory_muscles_which})`
-        : "utiliza musculatura acessória",
-    )
-  if (exam.valsalva === "sim") examBits.push("realiza Valsalva / apneia no esforço")
-  if (exam.perineal_awareness)
-    examBits.push(`consciência perineal ${exam.perineal_awareness}`)
-  if (exam.perineometer_mmhg)
-    examBits.push(`perineômetro ${exam.perineometer_mmhg} mmHg`)
-  if (exam.objective_plan) examBits.push(`conduta: ${exam.objective_plan}`)
-
-  const examText = examBits.length
-    ? `Na avaliação física, foi constatado que a paciente apresenta ${joinList(examBits)}.`
-    : "Na avaliação física, os achados foram registrados na ficha."
-
-  const proposalText =
-    exam.objective_plan?.trim() ||
-    "Eletroestimulação superficial e exercícios de Kegel que visam melhorar a consciência perineal e fortalecer os músculos do assoalho pélvico."
-
-  const guidanceText =
-    "Ajudar a paciente na compreensão dos exercícios, no tempo correto dos exercícios respiratórios. Durante o tratamento a paciente será reavaliada para comparar sua evolução. Será lembrada da importância da realização dos exercícios propostos em casa, pois são a base do tratamento."
-
-  return { opening, anamneseText, examText, proposalText, guidanceText }
-}
-
-export function physioReportFileBaseName(patientName: string) {
-  return `relatorio-fisioterapeutico-${patientName.replace(/\s+/g, "-").toLowerCase()}`
-}
-
 export const MEDICAL_DIAGNOSIS_OPTIONS = [
   { value: "IUE", label: "IUE" },
   { value: "Urgência", label: "Urgência" },
@@ -476,3 +364,256 @@ export const BOWEL_OPTIONS = [
   { value: "perde_fezes", label: "Perde fezes" },
   { value: "hemorroida", label: "Hemorróida" },
 ] as const
+
+function joinList(items: string[], conj = " e ") {
+  const clean = items.map((s) => s.trim()).filter(Boolean)
+  if (clean.length === 0) return ""
+  if (clean.length === 1) return clean[0]
+  return `${clean.slice(0, -1).join(", ")}${conj}${clean[clean.length - 1]}`
+}
+
+function sexLabel(sex: string | null | undefined) {
+  if (sex === "feminino") return "feminino"
+  if (sex === "masculino") return "masculino"
+  if (sex === "outro") return "outro"
+  return "não informado"
+}
+
+function optionLabel(
+  options: readonly { value: string; label: string }[],
+  value: string,
+) {
+  return options.find((o) => o.value === value)?.label ?? value
+}
+
+function labelsFor(
+  options: readonly { value: string; label: string }[],
+  values: string[],
+) {
+  return values.map((v) => optionLabel(options, v)).filter(Boolean)
+}
+
+export type PhysioReportPatientInput = {
+  full_name: string
+  age_years: number | null
+  sex: string | null
+  complaint_focus: string | null
+  notes?: string | null
+}
+
+export type PhysioReportDraft = {
+  opening: string
+  anamneseText: string
+  examText: string
+  proposalText: string
+  guidanceText: string
+}
+
+/** Monta descrição clínica da queixa a partir do cadastro + anamnese (evita "Outro"). */
+export function describePatientComplaint(
+  patient: PhysioReportPatientInput,
+  anamnese: UroginecoAnamnese,
+): string {
+  const bits: string[] = []
+
+  const diagnoses = anamnese.medical_diagnosis.filter(Boolean)
+  if (diagnoses.length) {
+    bits.push(`diagnóstico médico de ${joinList(diagnoses)}`)
+  }
+
+  const symptoms = [
+    ...labelsFor(URINARY_SYMPTOM_OPTIONS, anamnese.urinary_symptoms).filter(
+      (label) => {
+        if (label === "Frequência" && anamnese.frequency_detail) return false
+        if (label === "Noctúria" && anamnese.nocturia_detail) return false
+        if (label === "Dor" && anamnese.pain_detail) return false
+        return true
+      },
+    ),
+  ]
+  if (anamnese.urinary_symptoms.includes("frequencia") && anamnese.frequency_detail) {
+    symptoms.push(`frequência (${anamnese.frequency_detail})`)
+  }
+  if (anamnese.urinary_symptoms.includes("nocturia") && anamnese.nocturia_detail) {
+    symptoms.push(`noctúria (${anamnese.nocturia_detail})`)
+  }
+  if (anamnese.urinary_symptoms.includes("dor") && anamnese.pain_detail) {
+    symptoms.push(`dor (${anamnese.pain_detail})`)
+  }
+  if (symptoms.length) {
+    bits.push(joinList(symptoms))
+  }
+
+  if (anamnese.leak_activities.length) {
+    const acts = labelsFor(LEAK_ACTIVITY_OPTIONS, anamnese.leak_activities)
+    const other = anamnese.leak_activities_other?.trim()
+    const actText = other
+      ? joinList([...acts.filter((a) => a !== "Outros"), other])
+      : joinList(acts)
+    if (actText) bits.push(`perda urinária aos esforços (${actText})`)
+  }
+
+  if (anamnese.leak_amount) bits.push(`perda ${anamnese.leak_amount}`)
+  if (anamnese.iu_severity)
+    bits.push(`incontinência urinária ${anamnese.iu_severity}`)
+
+  const notes = patient.notes?.trim()
+  if (notes) bits.push(notes)
+
+  const focusRaw = patient.complaint_focus?.trim()
+  if (focusRaw && focusRaw.toLowerCase() !== "outro") {
+    const focus = complaintLabel(focusRaw) || focusRaw
+    const already =
+      bits.join(" ").toLowerCase().includes(focusRaw.toLowerCase()) ||
+      bits.join(" ").toLowerCase().includes(focus.toLowerCase())
+    if (!already) bits.push(focus)
+  }
+
+  if (bits.length === 0) return "queixa a esclarecer na evolução clínica"
+  return joinList(bits)
+}
+
+/** Monta rascunho narrativo no tom do RELATÓRIO FISIOTERAPÊUTICO. */
+export function buildPhysioReportDraft(
+  patient: PhysioReportPatientInput,
+  anamnese: UroginecoAnamnese,
+  exam: UroginecoPhysicalExam,
+): PhysioReportDraft {
+  const agePart =
+    patient.age_years != null ? `${patient.age_years} anos` : "idade não informada"
+  const complaint = describePatientComplaint(patient, anamnese)
+
+  const opening = `Paciente, ${patient.full_name}, ${agePart}, sexo ${sexLabel(patient.sex)}, com queixa de ${complaint}.`
+
+  const anamneseBits: string[] = []
+  const obst: string[] = []
+  if (anamnese.cesareans) obst.push(`${anamnese.cesareans} cesárea(s)`)
+  if (anamnese.vaginal_births)
+    obst.push(`${anamnese.vaginal_births} parto(s) normal(is)`)
+  if (anamnese.forceps) obst.push(`${anamnese.forceps} fórceps`)
+  if (anamnese.gestations) obst.push(`${anamnese.gestations} gestação(ões)`)
+  if (anamnese.parity) obst.push(`paridade ${anamnese.parity}`)
+  if (anamnese.abortions) obst.push(`${anamnese.abortions} aborto(s)`)
+  if (obst.length) anamneseBits.push(joinList(obst))
+  if (anamnese.heaviest_newborn_weight)
+    anamneseBits.push(`maior peso do RN ${anamnese.heaviest_newborn_weight}`)
+  if (anamnese.last_pregnancy_time)
+    anamneseBits.push(`última gestação há ${anamnese.last_pregnancy_time}`)
+  if (anamnese.symptoms_onset)
+    anamneseBits.push(`sintomas há ${anamnese.symptoms_onset}`)
+  if (anamnese.urine_loss_in_pregnancy === "sim")
+    anamneseBits.push("perda de urina durante a gravidez")
+  if (anamnese.gyn_surgery === "sim")
+    anamneseBits.push(
+      anamnese.gyn_surgery_details
+        ? `cirurgia(s) ginecológica(s): ${anamnese.gyn_surgery_details}`
+        : "cirurgia(s) ginecológica(s)",
+    )
+  if (anamnese.menopause) anamneseBits.push(`menopausa: ${anamnese.menopause}`)
+  if (anamnese.iu_severity)
+    anamneseBits.push(`incontinência ${anamnese.iu_severity}`)
+  if (anamnese.leak_activities.length) {
+    const acts = labelsFor(LEAK_ACTIVITY_OPTIONS, anamnese.leak_activities)
+    anamneseBits.push(`perda aos esforços (${joinList(acts)})`)
+  }
+  if (anamnese.pad_use === "sim") {
+    anamneseBits.push(
+      anamnese.pad_type
+        ? `uso de forro (${anamnese.pad_type})`
+        : "uso de forro",
+    )
+  }
+  if (anamnese.bowel.length) {
+    anamneseBits.push(
+      `hábito intestinal: ${joinList(labelsFor(BOWEL_OPTIONS, anamnese.bowel))}`,
+    )
+  }
+  if (anamnese.prior_physio === "sim") {
+    const when = [anamnese.prior_physio_when, anamnese.prior_physio_duration]
+      .filter(Boolean)
+      .join(", ")
+    anamneseBits.push(
+      when
+        ? `já realizou fisioterapia previamente (${when})`
+        : "já realizou fisioterapia previamente",
+    )
+  }
+  if (anamnese.other_diseases)
+    anamneseBits.push(`outras doenças: ${anamnese.other_diseases}`)
+  if (anamnese.pain_during_sex === "sim")
+    anamneseBits.push("dor durante a relação sexual")
+  if (anamnese.leak_during_sex === "sim")
+    anamneseBits.push("perda de urina durante a relação sexual")
+
+  const anamneseText = anamneseBits.length
+    ? `Inicialmente fizemos uma anamnese onde a paciente relatou ${joinList(anamneseBits)}.`
+    : "Inicialmente fizemos uma anamnese com a paciente."
+
+  const examBits: string[] = []
+  const p = exam.perfect_p.trim()
+  if (p !== "") {
+    const roman = ROMAN[p] ?? p
+    examBits.push(
+      `grau ${roman} de força muscular perineal (P=${p} na escala PERFECT)`,
+    )
+  }
+  if (exam.perfect_e) examBits.push(`endurance E=${exam.perfect_e}`)
+  if (exam.perfect_r) examBits.push(`repetições R=${exam.perfect_r}`)
+  if (exam.perfect_f) examBits.push(`contrações rápidas (F=${exam.perfect_f})`)
+  if (exam.accessory_muscles === "sim")
+    examBits.push(
+      exam.accessory_muscles_which
+        ? `utiliza musculatura acessória (${exam.accessory_muscles_which})`
+        : "utiliza musculatura acessória",
+    )
+  if (exam.valsalva === "sim")
+    examBits.push("realiza Valsalva / apneia no esforço")
+  if (exam.perineal_awareness) {
+    const q = exam.perineal_awareness_quality
+      ? ` (${exam.perineal_awareness_quality})`
+      : ""
+    examBits.push(`consciência perineal ${exam.perineal_awareness}${q}`)
+  }
+  if (exam.sensitivity)
+    examBits.push(`sensibilidade ${exam.sensitivity}`)
+  if (exam.dystopia === "sim" || exam.dystopia_anterior.length || exam.dystopia_posterior.length || exam.dystopia_apical.length) {
+    const dParts = [
+      ...exam.dystopia_anterior,
+      ...exam.dystopia_posterior,
+      ...exam.dystopia_apical,
+    ]
+    examBits.push(
+      dParts.length ? `distopia (${joinList(dParts)})` : "distopia",
+    )
+  }
+  if (exam.perineometer_mmhg)
+    examBits.push(`perineômetro ${exam.perineometer_mmhg} mmHg`)
+  if (exam.urodynamic_study)
+    examBits.push(`estudo urodinâmico: ${exam.urodynamic_study}`)
+  if (exam.urine_exam) examBits.push(`exame de urina: ${exam.urine_exam}`)
+  if (exam.objective_plan) examBits.push(`conduta: ${exam.objective_plan}`)
+
+  const examText = examBits.length
+    ? `Na avaliação física, foi constatado que a paciente apresenta ${joinList(examBits)}.`
+    : "Na avaliação física, os achados foram registrados na ficha."
+
+  const proposalBits: string[] = []
+  if (exam.care_mode === "individual")
+    proposalBits.push("Atendimento individual")
+  if (exam.care_mode === "grupo") proposalBits.push("Atendimento em grupo")
+  if (exam.objective_plan?.trim()) proposalBits.push(exam.objective_plan.trim())
+
+  const proposalText =
+    proposalBits.length > 0
+      ? proposalBits.join(". ") + (proposalBits.length === 1 ? "" : ".")
+      : "Eletroestimulação superficial e exercícios de Kegel que visam melhorar a consciência perineal e fortalecer os músculos do assoalho pélvico."
+
+  const guidanceText =
+    "Ajudar a paciente na compreensão dos exercícios, no tempo correto dos exercícios respiratórios. Durante o tratamento a paciente será reavaliada para comparar sua evolução. Será lembrada da importância da realização dos exercícios propostos em casa, pois são a base do tratamento."
+
+  return { opening, anamneseText, examText, proposalText, guidanceText }
+}
+
+export function physioReportFileBaseName(patientName: string) {
+  return `relatorio-fisioterapeutico-${patientName.replace(/\s+/g, "-").toLowerCase()}`
+}

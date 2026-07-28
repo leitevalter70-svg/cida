@@ -264,10 +264,12 @@ export default async function PacienteDetailPage({
             patientAge={patient.age_years}
             patientSex={patient.sex}
             complaintFocus={patient.complaint_focus}
+            patientNotes={patient.notes}
             assessmentDate={urogineco?.assessment_date ?? null}
             initialAnamnese={urogineco?.anamnese}
             initialExam={urogineco?.physical_exam}
             initialReport={{
+              openingText: urogineco?.report_opening_text ?? null,
               anamneseText: urogineco?.report_anamnese_text ?? null,
               examText: urogineco?.report_exam_text ?? null,
               proposalText: urogineco?.report_proposal_text ?? null,

@@ -1008,7 +1008,7 @@ export async function upsertUroginecoAssessment(
 
   const { data: patient, error: pErr } = await supabase
     .from("patients")
-    .select("id, full_name, age_years, sex, complaint_focus")
+    .select("id, full_name, age_years, sex, complaint_focus, notes")
     .eq("id", patientId)
     .eq("user_id", userId)
     .single()
@@ -1022,7 +1022,7 @@ export async function upsertUroginecoAssessment(
   const { data: existing } = await supabase
     .from("urogineco_assessments")
     .select(
-      "id, report_anamnese_text, report_exam_text, report_proposal_text, report_guidance_text",
+      "id, report_opening_text, report_anamnese_text, report_exam_text, report_proposal_text, report_guidance_text",
     )
     .eq("patient_id", patientId)
     .eq("user_id", userId)
@@ -1034,6 +1034,7 @@ export async function upsertUroginecoAssessment(
       age_years: patient.age_years,
       sex: patient.sex,
       complaint_focus: patient.complaint_focus,
+      notes: patient.notes,
     },
     anamnese,
     physical_exam,
@@ -1045,6 +1046,8 @@ export async function upsertUroginecoAssessment(
     assessment_date,
     anamnese,
     physical_exam,
+    report_opening_text:
+      existing?.report_opening_text?.trim() || draft.opening,
     report_anamnese_text:
       existing?.report_anamnese_text?.trim() || draft.anamneseText,
     report_exam_text: existing?.report_exam_text?.trim() || draft.examText,
@@ -1065,6 +1068,7 @@ export async function upsertUroginecoAssessment(
 export async function upsertUroginecoReportTexts(
   patientId: string,
   payload: {
+    report_opening_text: string
     report_anamnese_text: string
     report_exam_text: string
     report_proposal_text: string
@@ -1096,6 +1100,7 @@ export async function upsertUroginecoReportTexts(
         existing?.assessment_date || new Date().toISOString().slice(0, 10),
       anamnese: mergeAnamnese(existing?.anamnese),
       physical_exam: mergePhysicalExam(existing?.physical_exam),
+      report_opening_text: payload.report_opening_text || null,
       report_anamnese_text: payload.report_anamnese_text || null,
       report_exam_text: payload.report_exam_text || null,
       report_proposal_text: payload.report_proposal_text || null,
@@ -1113,7 +1118,7 @@ export async function regenerateUroginecoReportDraft(patientId: string) {
 
   const { data: patient, error: pErr } = await supabase
     .from("patients")
-    .select("id, full_name, age_years, sex, complaint_focus")
+    .select("id, full_name, age_years, sex, complaint_focus, notes")
     .eq("id", patientId)
     .eq("user_id", userId)
     .single()
@@ -1134,6 +1139,7 @@ export async function regenerateUroginecoReportDraft(patientId: string) {
       age_years: patient.age_years,
       sex: patient.sex,
       complaint_focus: patient.complaint_focus,
+      notes: patient.notes,
     },
     anamnese,
     physical_exam,
@@ -1147,6 +1153,7 @@ export async function regenerateUroginecoReportDraft(patientId: string) {
         existing?.assessment_date || new Date().toISOString().slice(0, 10),
       anamnese,
       physical_exam,
+      report_opening_text: draft.opening,
       report_anamnese_text: draft.anamneseText,
       report_exam_text: draft.examText,
       report_proposal_text: draft.proposalText,
