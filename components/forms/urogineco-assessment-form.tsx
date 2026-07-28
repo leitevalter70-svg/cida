@@ -30,7 +30,6 @@ import {
   type UroginecoAnamnese,
   type UroginecoPhysicalExam,
 } from "@/lib/clinical/urogineco"
-import { complaintLabel } from "@/lib/clinical/complaints"
 
 function Section({
   title,
@@ -302,10 +301,6 @@ export function UroginecoAssessmentForm({
         <p className="pb-2 text-xs text-muted-foreground">
           Cadastro: {patientName}
           {patientAge != null ? ` · ${patientAge} anos` : ""}
-          {complaintFocus
-            ? ` · ${complaintLabel(complaintFocus)}`
-            : ""}{" "}
-          (não repetido nos formulários)
         </p>
       </div>
 
