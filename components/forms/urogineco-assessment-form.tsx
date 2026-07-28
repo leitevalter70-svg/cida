@@ -1237,10 +1237,6 @@ export function UroginecoAssessmentForm({
               value={reportOpening}
               onChange={(e) => setReportOpening(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              Montada com cadastro + anamnese (sintomas, diagnóstico, perda).
-              Não usa &quot;Outro&quot; do cadastro. Pode editar à mão.
-            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Texto da anamnese</Label>
