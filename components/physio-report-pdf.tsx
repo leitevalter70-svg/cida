@@ -65,16 +65,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontFamily: "Helvetica-Bold",
     marginTop: 6,
-    marginBottom: 6,
+    marginBottom: 22,
     textAlign: "center",
     color: "#1f2a2e",
     letterSpacing: 0.6,
-  },
-  dateLine: {
-    fontSize: 11,
-    color: "#5a6b70",
-    textAlign: "center",
-    marginBottom: 22,
   },
   body: {
     flexGrow: 1,
@@ -131,17 +125,6 @@ function formatReportDate(iso: string | null | undefined) {
   }
 }
 
-function formatReportDateShort(iso: string | null | undefined) {
-  if (!iso?.trim()) {
-    return format(new Date(), "dd/MM/yyyy", { locale: ptBR })
-  }
-  try {
-    return format(parseISO(iso), "dd/MM/yyyy", { locale: ptBR })
-  } catch {
-    return iso
-  }
-}
-
 function resolveSignature(data: PhysioReportPdfData) {
   const professionalName =
     data.professionalName?.trim() || DEFAULT_PROFESSIONAL_NAME
@@ -157,14 +140,12 @@ function resolveSignature(data: PhysioReportPdfData) {
 function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
   const signature = resolveSignature(data)
   const dateLong = formatReportDate(data.reportDate)
-  const dateShort = formatReportDateShort(data.reportDate)
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.brandName}>Saúde da mulher</Text>
         <Text style={styles.title}>RELATÓRIO FISIOTERAPÊUTICO</Text>
-        <Text style={styles.dateLine}>Data: {dateShort}</Text>
 
         <View style={styles.body}>
           <View style={styles.section}>
@@ -260,7 +241,6 @@ export function DownloadPhysioReportWordButton({
   async function handleDownload() {
     const signature = resolveSignature(data)
     const dateLong = formatReportDate(data.reportDate)
-    const dateShort = formatReportDateShort(data.reportDate)
 
     const doc = new DocxDocument({
       sections: [
@@ -300,18 +280,7 @@ export function DownloadPhysioReportWordButton({
               text: "RELATÓRIO FISIOTERAPÊUTICO",
               heading: HeadingLevel.HEADING_1,
               alignment: AlignmentType.CENTER,
-              spacing: { before: 80, after: 80 },
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `Data: ${dateShort}`,
-                  size: 22,
-                  color: "5A6B70",
-                }),
-              ],
-              alignment: AlignmentType.CENTER,
-              spacing: { after: 280 },
+              spacing: { before: 80, after: 280 },
             }),
             sectionHeading("Identificação e queixa"),
             bodyParagraph(data.opening),
