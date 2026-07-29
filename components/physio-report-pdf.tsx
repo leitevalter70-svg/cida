@@ -7,9 +7,6 @@ import {
   View,
   StyleSheet,
   pdf,
-  Svg,
-  Path,
-  Circle,
 } from "@react-pdf/renderer"
 import {
   Document as DocxDocument,
@@ -17,9 +14,9 @@ import {
   Paragraph,
   TextRun,
   HeadingLevel,
+  AlignmentType,
 } from "docx"
 import { Button } from "@/components/ui/button"
-import { PHYSIO_SYMBOL_PATHS } from "@/components/physio-symbol"
 import { physioReportFileBaseName } from "@/lib/clinical/urogineco"
 import {
   DEFAULT_CREFITO,
@@ -48,29 +45,16 @@ const styles = StyleSheet.create({
     color: "#1f2a2e",
     lineHeight: 1.45,
   },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  brandName: {
+    fontSize: 14,
+    fontFamily: "Helvetica-Bold",
+    color: BRAND,
+    textAlign: "center",
     marginBottom: 16,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#d5e0e0",
   },
-  brandIcon: {
-    width: 24,
-    height: 24,
-    marginRight: 8,
-    backgroundColor: BRAND,
-    borderRadius: 5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  brandName: {
-    fontSize: 11,
-    fontFamily: "Helvetica-Bold",
-    color: BRAND,
-  },
-  brandTag: { fontSize: 8, color: "#5a6b70" },
   title: {
     fontSize: 16,
     fontFamily: "Helvetica-Bold",
@@ -113,54 +97,12 @@ function resolveSignature(data: PhysioReportPdfData) {
   return { professionalName, crefitoLine }
 }
 
-function PhysioSymbolPdf() {
-  const p = PHYSIO_SYMBOL_PATHS
-  return (
-    <View style={styles.brandIcon}>
-      <Svg viewBox="0 0 48 48" width={18} height={18}>
-        <Path
-          d={p.staff}
-          stroke="#ffffff"
-          strokeWidth={2.8}
-          strokeLinecap="round"
-        />
-        <Circle cx={p.head.cx} cy={p.head.cy} r={p.head.r} fill="#ffffff" />
-        <Path d={p.torso} fill="#ffffff" />
-        <Path
-          d={p.armsLeft}
-          stroke="#ffffff"
-          strokeWidth={2.4}
-          strokeLinecap="round"
-        />
-        <Path
-          d={p.armsRight}
-          stroke="#ffffff"
-          strokeWidth={2.4}
-          strokeLinecap="round"
-        />
-        <Path
-          d={p.base}
-          stroke="#ffffff"
-          strokeWidth={2.4}
-          strokeLinecap="round"
-        />
-      </Svg>
-    </View>
-  )
-}
-
 function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
   const signature = resolveSignature(data)
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <View style={styles.brandRow}>
-          <PhysioSymbolPdf />
-          <View>
-            <Text style={styles.brandName}>FISIOTERAPIA</Text>
-            <Text style={styles.brandTag}>Saúde da mulher · assoalho pélvico</Text>
-          </View>
-        </View>
+        <Text style={styles.brandName}>Saúde da mulher</Text>
 
         <Text style={styles.title}>RELATÓRIO FISIOTERAPÊUTICO</Text>
 
@@ -222,26 +164,27 @@ export function DownloadPhysioReportWordButton({
             new Paragraph({
               children: [
                 new TextRun({
-                  text: "FISIOTERAPIA",
+                  text: "Saúde da mulher",
                   bold: true,
                   color: "2A6F77",
-                  size: 22,
+                  size: 28,
                 }),
               ],
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: "Saúde da mulher · assoalho pélvico",
-                  size: 16,
-                  color: "5A6B70",
-                }),
-              ],
+              alignment: AlignmentType.CENTER,
               spacing: { after: 200 },
+              border: {
+                bottom: {
+                  color: "D5E0E0",
+                  space: 8,
+                  style: "single",
+                  size: 6,
+                },
+              },
             }),
             new Paragraph({
               text: "RELATÓRIO FISIOTERAPÊUTICO",
               heading: HeadingLevel.HEADING_1,
+              alignment: AlignmentType.CENTER,
               spacing: { after: 200 },
             }),
             new Paragraph({ text: data.opening, spacing: { after: 160 } }),
