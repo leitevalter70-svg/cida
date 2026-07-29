@@ -271,6 +271,7 @@ export function UroginecoAssessmentForm({
 
   const pdfData = {
     patientName,
+    reportDate: date,
     opening: reportOpening,
     anamneseText: reportAnamnese,
     examText: reportExam,
