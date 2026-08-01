@@ -9,7 +9,7 @@ import {
   pdf,
 } from "@react-pdf/renderer"
 import { Button } from "@/components/ui/button"
-import { formatCrefitoLine } from "@/lib/professional"
+import { DEFAULT_PHONE, formatCrefitoLine } from "@/lib/professional"
 
 const styles = StyleSheet.create({
   page: {
@@ -111,6 +111,7 @@ function ReceiptDocument({ data }: { data: ReceiptPdfData }) {
           <Text style={styles.signatureMeta}>
             {formatCrefitoLine(data.crefito)}
           </Text>
+          <Text style={styles.signatureMeta}>{DEFAULT_PHONE}</Text>
           <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
         </View>
       </Page>

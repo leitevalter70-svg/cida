@@ -31,6 +31,7 @@ import {
   type UroginecoAnamnese,
   type UroginecoPhysicalExam,
 } from "@/lib/clinical/urogineco"
+import { DEFAULT_PHONE } from "@/lib/professional"
 
 function Section({
   title,
@@ -1282,6 +1283,7 @@ export function UroginecoAssessmentForm({
               <p className="text-sm text-muted-foreground">
                 {credentials.crefitoLine}
               </p>
+              <p className="text-sm text-muted-foreground">{DEFAULT_PHONE}</p>
               <p className="text-sm text-muted-foreground">Fisioterapeuta</p>
               <p className="pt-1 text-xs text-muted-foreground">
                 Nome e CREFITO vêm de Configurações e entram no PDF/Word.

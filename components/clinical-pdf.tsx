@@ -26,6 +26,7 @@ import {
   formatSessionLine,
   type ClinicalPdfData,
 } from "@/lib/clinical/report-export"
+import { DEFAULT_PHONE } from "@/lib/professional"
 
 export type { ClinicalPdfData, ClinicalPdfSession } from "@/lib/clinical/report-export"
 
@@ -252,6 +253,7 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
         <View style={styles.signature}>
           <Text style={styles.signatureName}>{data.professionalName}</Text>
           <Text style={styles.signatureMeta}>{data.crefitoLine}</Text>
+          <Text style={styles.signatureMeta}>{DEFAULT_PHONE}</Text>
           <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
         </View>
       </Page>
@@ -454,6 +456,11 @@ function buildWordDocument(data: ClinicalPdfData) {
     new Paragraph({
       children: [
         new TextRun({ text: data.crefitoLine, size: 16, color: "5A6B70" }),
+      ],
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: DEFAULT_PHONE, size: 16, color: "5A6B70" }),
       ],
     }),
     new Paragraph({

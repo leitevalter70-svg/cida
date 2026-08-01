@@ -3,6 +3,7 @@ import type { PaymentMethod } from "@/lib/types"
 
 export const DEFAULT_PROFESSIONAL_NAME = "Maria Apárecida S. Leite"
 export const DEFAULT_CREFITO = "82810F"
+export const DEFAULT_PHONE = "11 99268-5619"
 
 export type ProfessionalCredentials = {
   professionalName: string

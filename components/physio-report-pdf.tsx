@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { physioReportFileBaseName } from "@/lib/clinical/urogineco"
 import {
   DEFAULT_CREFITO,
+  DEFAULT_PHONE,
   DEFAULT_PROFESSIONAL_NAME,
   formatCrefitoLine,
 } from "@/lib/professional"
@@ -178,6 +179,7 @@ function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
           <Text style={styles.signaturePlace}>{dateLong}</Text>
           <Text style={styles.signatureName}>{signature.professionalName}</Text>
           <Text style={styles.signatureMeta}>{signature.crefitoLine}</Text>
+          <Text style={styles.signatureMeta}>{DEFAULT_PHONE}</Text>
           <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
         </View>
       </Page>
@@ -326,6 +328,16 @@ export function DownloadPhysioReportWordButton({
               children: [
                 new TextRun({
                   text: signature.crefitoLine,
+                  size: 22,
+                  color: "5A6B70",
+                }),
+              ],
+              alignment: AlignmentType.CENTER,
+            }),
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: DEFAULT_PHONE,
                   size: 22,
                   color: "5A6B70",
                 }),
