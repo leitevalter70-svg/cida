@@ -70,3 +70,23 @@ export function complaintLabel(value: string | null | undefined) {
   )
   return found?.label ?? value
 }
+
+/** Cadastro genérico "Outro" sem texto livre — não deve aparecer no relatório. */
+export function isGenericOutroComplaint(value: string | null | undefined) {
+  return (value?.trim().toLowerCase() || "") === "outro"
+}
+
+/**
+ * Escolhe a primeira queixa útil (pula "Outro" vazio).
+ * Útil quando o snapshot da alta ficou só como "Outro".
+ */
+export function resolveDisplayComplaint(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  for (const raw of candidates) {
+    const trimmed = raw?.trim()
+    if (!trimmed || isGenericOutroComplaint(trimmed)) continue
+    return complaintLabel(trimmed) || trimmed
+  }
+  return null
+}

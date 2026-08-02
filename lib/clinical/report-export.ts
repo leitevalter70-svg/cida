@@ -37,7 +37,7 @@ export type ClinicalPdfData = {
   sessions: ClinicalPdfSession[]
 }
 
-/** Compact one-line summary for a session (UI + PDF + Word). */
+/** Compact one-line summary for a session (web preview). */
 export function formatSessionLine(
   index: number,
   s: ClinicalPdfSession,

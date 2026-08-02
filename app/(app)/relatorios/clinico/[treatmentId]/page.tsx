@@ -9,7 +9,6 @@ import {
   DownloadClinicalWordButton,
 } from "@/components/clinical-pdf"
 import {
-  formatSessionLine,
   type ClinicalPdfData,
 } from "@/lib/clinical/report-export"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,8 +16,16 @@ import { Badge } from "@/components/ui/badge"
 import { PhysioSymbol } from "@/components/physio-symbol"
 import { formatData } from "@/lib/format"
 import { EvolutionChart } from "@/components/evolution-chart"
-import { complaintLabel } from "@/lib/clinical/complaints"
+import {
+  complaintLabel,
+  isGenericOutroComplaint,
+  resolveDisplayComplaint,
+} from "@/lib/clinical/complaints"
 import { adherencePercent } from "@/lib/clinical/chance"
+import {
+  describePatientComplaint,
+  mergeAnamnese,
+} from "@/lib/clinical/urogineco"
 import {
   formatCrefitoLine,
   resolveCredentials,
@@ -89,6 +96,12 @@ export default async function RelatorioClinicoPage({
     .select("*")
     .maybeSingle()
 
+  const { data: assessment } = await supabase
+    .from("urogineco_assessments")
+    .select("anamnese")
+    .eq("patient_id", treatment.patient_id)
+    .maybeSingle()
+
   if (!report) {
     return (
       <div className="flex flex-col gap-4">
@@ -122,8 +135,38 @@ export default async function RelatorioClinicoPage({
         escala: Number(s.evolution_scale),
       })) ?? []
 
-  const complaint =
-    complaintLabel(report.complaint_focus) || report.complaint_focus
+  const anamneseComplaint = assessment?.anamnese
+    ? describePatientComplaint(
+        {
+          full_name: patient.full_name,
+          age_years: patient.age_years,
+          sex: patient.sex,
+          complaint_focus: patient.complaint_focus,
+          notes: patient.notes,
+        },
+        mergeAnamnese(assessment.anamnese),
+      )
+    : null
+
+  const sessionComplaintFallbacks =
+    sessions
+      ?.map((s) => s.daily_complaint as string | null)
+      .filter(
+        (c): c is string =>
+          !!c?.trim() && !isGenericOutroComplaint(c),
+      ) ?? []
+
+  const complaint = resolveDisplayComplaint(
+    report.complaint_focus,
+    patient.complaint_focus,
+    anamneseComplaint &&
+      anamneseComplaint !== "queixa a esclarecer na evolução clínica"
+      ? anamneseComplaint
+      : null,
+    patient.notes,
+    ...sessionComplaintFallbacks,
+    treatment.protocol_name,
+  )
 
   const firstSessionDate = sessions?.[0]?.session_date ?? null
   const lastSessionDate =
@@ -191,9 +234,13 @@ export default async function RelatorioClinicoPage({
         date: formatData(s.session_date),
         scale:
           s.evolution_scale != null ? Number(s.evolution_scale) : null,
-        complaint:
-          complaintLabel(s.daily_complaint) ||
-          (s.daily_complaint as string | null),
+        complaint: (() => {
+          const raw =
+            complaintLabel(s.daily_complaint) ||
+            (s.daily_complaint as string | null)
+          if (!raw || isGenericOutroComplaint(raw)) return null
+          return raw
+        })(),
         procedures: s.procedures_done as string | null,
         devices: deviceNames as string[],
         accessRoute: access,
@@ -345,7 +392,15 @@ export default async function RelatorioClinicoPage({
 
       <Card className="border-border/80 shadow-none">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Histórico das sessões</CardTitle>
+          <CardTitle className="text-base">
+            Histórico das sessões
+            {pdfSessions.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({pdfSessions.length}{" "}
+                {pdfSessions.length === 1 ? "sessão" : "sessões"})
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {pdfSessions.length === 0 ? (
@@ -353,17 +408,76 @@ export default async function RelatorioClinicoPage({
               Nenhuma sessão encontrada para esta paciente.
             </p>
           ) : (
-            <ul className="divide-y divide-border text-sm">
-              {pdfSessions.map((s, i) => (
-                <li
-                  key={`${s.date}-${i}`}
-                  className="py-1.5 leading-snug text-muted-foreground"
-                >
-                  <span className="text-foreground">
-                    {formatSessionLine(i, s)}
-                  </span>
-                </li>
-              ))}
+            <ul className="flex flex-col gap-3">
+              {pdfSessions.map((s, i) => {
+                const resources = [...s.devices, s.accessRoute, s.deviceNotes]
+                  .filter(Boolean)
+                  .join(" · ")
+                return (
+                  <li
+                    key={`${s.date}-${i}`}
+                    className="rounded-lg border border-border/80 border-l-[3px] border-l-primary bg-secondary/40 px-3 py-3 text-sm"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                          {i + 1}
+                        </span>
+                        <span className="font-semibold text-foreground">
+                          {s.date}
+                        </span>
+                      </div>
+                      {s.scale != null && (
+                        <Badge variant="default" className="text-xs">
+                          Escala {s.scale}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="space-y-1 text-muted-foreground">
+                      {s.complaint && (
+                        <p>
+                          <span className="font-medium text-primary">
+                            Queixa:{" "}
+                          </span>
+                          {s.complaint}
+                        </p>
+                      )}
+                      {s.procedures && (
+                        <p>
+                          <span className="font-medium text-primary">
+                            Procedimentos:{" "}
+                          </span>
+                          {s.procedures.replace(/\s+/g, " ").trim()}
+                        </p>
+                      )}
+                      {resources && (
+                        <p>
+                          <span className="font-medium text-primary">
+                            Recursos:{" "}
+                          </span>
+                          {resources}
+                        </p>
+                      )}
+                      {s.patientResponse && (
+                        <p>
+                          <span className="font-medium text-primary">
+                            Resposta:{" "}
+                          </span>
+                          {s.patientResponse.replace(/\s+/g, " ").trim()}
+                        </p>
+                      )}
+                      {s.nextStep && (
+                        <p>
+                          <span className="font-medium text-primary">
+                            Próximo passo:{" "}
+                          </span>
+                          {s.nextStep.replace(/\s+/g, " ").trim()}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </CardContent>
