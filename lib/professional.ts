@@ -4,6 +4,14 @@ import type { PaymentMethod } from "@/lib/types"
 export const DEFAULT_PROFESSIONAL_NAME = "Maria Apárecida S. Leite"
 export const DEFAULT_CREFITO = "82810F"
 export const DEFAULT_PHONE = "11 99268-5619"
+export const DEFAULT_BUILDING = "Edifício Moutran"
+export const DEFAULT_ADDRESS_LINE =
+  "Av. Dr. Paulo Moutran, 50 — Sala 806 — Anhangabaú — Jundiaí/SP"
+export const DEFAULT_ADDRESS_LINES = [
+  DEFAULT_BUILDING,
+  "Av. Dr. Paulo Moutran, 50 — Sala 806",
+  "Anhangabaú — Jundiaí/SP",
+] as const
 
 export type ProfessionalCredentials = {
   professionalName: string

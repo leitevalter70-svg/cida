@@ -31,7 +31,7 @@ import {
   type UroginecoAnamnese,
   type UroginecoPhysicalExam,
 } from "@/lib/clinical/urogineco"
-import { DEFAULT_PHONE } from "@/lib/professional"
+import { DEFAULT_ADDRESS_LINES, DEFAULT_PHONE } from "@/lib/professional"
 
 function Section({
   title,
@@ -1285,6 +1285,17 @@ export function UroginecoAssessmentForm({
               </p>
               <p className="text-sm text-muted-foreground">{DEFAULT_PHONE}</p>
               <p className="text-sm text-muted-foreground">Fisioterapeuta</p>
+              <div className="mt-3 space-y-0.5 border-t border-border/60 pt-3 text-center">
+                <p className="text-xs font-semibold text-primary">
+                  {DEFAULT_ADDRESS_LINES[0]}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {DEFAULT_ADDRESS_LINES[1]}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {DEFAULT_ADDRESS_LINES[2]}
+                </p>
+              </div>
               <p className="pt-1 text-xs text-muted-foreground">
                 Nome e CREFITO vêm de Configurações e entram no PDF/Word.
               </p>

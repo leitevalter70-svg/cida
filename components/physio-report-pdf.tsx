@@ -21,6 +21,7 @@ import { ptBR } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
 import { physioReportFileBaseName } from "@/lib/clinical/urogineco"
 import {
+  DEFAULT_ADDRESS_LINES,
   DEFAULT_CREFITO,
   DEFAULT_PHONE,
   DEFAULT_PROFESSIONAL_NAME,
@@ -44,7 +45,7 @@ const BRAND = "#2a6f77"
 const styles = StyleSheet.create({
   page: {
     paddingTop: 36,
-    paddingBottom: 40,
+    paddingBottom: 56,
     paddingHorizontal: 42,
     fontSize: 12,
     fontFamily: "Helvetica",
@@ -112,6 +113,26 @@ const styles = StyleSheet.create({
     color: "#5a6b70",
     marginBottom: 2,
     textAlign: "center",
+  },
+  letterhead: {
+    marginTop: 22,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#c5d4d4",
+    alignItems: "center",
+  },
+  letterheadBuilding: {
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    color: BRAND,
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  letterheadLine: {
+    fontSize: 9,
+    color: "#5a6b70",
+    textAlign: "center",
+    marginBottom: 1,
   },
 })
 
@@ -181,6 +202,12 @@ function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
           <Text style={styles.signatureMeta}>{signature.crefitoLine}</Text>
           <Text style={styles.signatureMeta}>{DEFAULT_PHONE}</Text>
           <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
+        </View>
+
+        <View style={styles.letterhead}>
+          <Text style={styles.letterheadBuilding}>{DEFAULT_ADDRESS_LINES[0]}</Text>
+          <Text style={styles.letterheadLine}>{DEFAULT_ADDRESS_LINES[1]}</Text>
+          <Text style={styles.letterheadLine}>{DEFAULT_ADDRESS_LINES[2]}</Text>
         </View>
       </Page>
     </Document>
@@ -349,6 +376,48 @@ export function DownloadPhysioReportWordButton({
                 new TextRun({
                   text: "Fisioterapeuta",
                   size: 22,
+                  color: "5A6B70",
+                }),
+              ],
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 280 },
+            }),
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: DEFAULT_ADDRESS_LINES[0],
+                  bold: true,
+                  size: 18,
+                  color: "2A6F77",
+                }),
+              ],
+              alignment: AlignmentType.CENTER,
+              spacing: { before: 200, after: 40 },
+              border: {
+                top: {
+                  color: "C5D4D4",
+                  space: 12,
+                  style: "single",
+                  size: 6,
+                },
+              },
+            }),
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: DEFAULT_ADDRESS_LINES[1],
+                  size: 16,
+                  color: "5A6B70",
+                }),
+              ],
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 20 },
+            }),
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: DEFAULT_ADDRESS_LINES[2],
+                  size: 16,
                   color: "5A6B70",
                 }),
               ],
