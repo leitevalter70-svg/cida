@@ -12,10 +12,20 @@ import {
   WidthType,
   AlignmentType,
   BorderStyle,
+  Footer,
+  HeadingLevel,
+  ShadingType,
+  VerticalAlign,
 } from "docx"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
 import { Button } from "@/components/ui/button"
-import { formatBRL } from "@/lib/format"
-import { formatCrefitoLine } from "@/lib/professional"
+import { formatBRL, formatData } from "@/lib/format"
+import {
+  DEFAULT_ADDRESS_LINES,
+  DEFAULT_PHONE,
+  formatCrefitoLine,
+} from "@/lib/professional"
 
 export type PrestacaoExportRow = {
   tipo: "Receita" | "Despesa"
@@ -50,12 +60,11 @@ type PrestacaoExportProps = {
   totals: PrestacaoExportTotals
 }
 
-const CELL_BORDERS = {
-  top: { style: BorderStyle.SINGLE, size: 4, color: "D5E0E0" },
-  bottom: { style: BorderStyle.SINGLE, size: 4, color: "D5E0E0" },
-  left: { style: BorderStyle.SINGLE, size: 4, color: "D5E0E0" },
-  right: { style: BorderStyle.SINGLE, size: 4, color: "D5E0E0" },
-}
+/** Usable content width on A4 with ~1.6 cm side margins. */
+const PAGE_WIDTH = 9360
+
+const THIN = { style: BorderStyle.SINGLE, size: 4, color: "D5E0E0" }
+const CELL_BORDERS = { top: THIN, bottom: THIN, left: THIN, right: THIN }
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -66,17 +75,45 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-function headerCell(text: string, width = 900) {
+function formatReportDate(date = new Date()) {
+  return format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
+}
+
+function sectionHeading(text: string) {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text,
+        bold: true,
+        color: "2A6F77",
+        size: 24,
+      }),
+    ],
+    spacing: { before: 240, after: 100 },
+  })
+}
+
+function bodyLine(text: string, after = 40) {
+  return new Paragraph({
+    children: [new TextRun({ text, size: 20 })],
+    spacing: { after },
+  })
+}
+
+function headerCell(text: string, width: number, align: typeof AlignmentType.LEFT | typeof AlignmentType.RIGHT = AlignmentType.LEFT) {
   return new TableCell({
     borders: CELL_BORDERS,
     width: { size: width, type: WidthType.DXA },
+    shading: { type: ShadingType.CLEAR, fill: "E8F2F2" },
+    verticalAlign: VerticalAlign.CENTER,
     children: [
       new Paragraph({
+        alignment: align,
         children: [
           new TextRun({
             text,
             bold: true,
-            size: 14,
+            size: 16,
             color: "2A6F77",
           }),
         ],
@@ -85,28 +122,159 @@ function headerCell(text: string, width = 900) {
   })
 }
 
-function textCell(text: string, width = 900) {
+function textCell(
+  text: string,
+  width: number,
+  opts?: { align?: typeof AlignmentType.LEFT | typeof AlignmentType.RIGHT | typeof AlignmentType.CENTER; bold?: boolean; fill?: string },
+) {
   return new TableCell({
     borders: CELL_BORDERS,
     width: { size: width, type: WidthType.DXA },
+    shading: opts?.fill
+      ? { type: ShadingType.CLEAR, fill: opts.fill }
+      : undefined,
+    verticalAlign: VerticalAlign.CENTER,
     children: [
       new Paragraph({
-        children: [new TextRun({ text, size: 14 })],
+        alignment: opts?.align ?? AlignmentType.LEFT,
+        children: [
+          new TextRun({ text, size: 16, bold: opts?.bold }),
+        ],
       }),
     ],
   })
 }
 
-function moneyCell(value: number, width = 900) {
-  return new TableCell({
-    borders: CELL_BORDERS,
-    width: { size: width, type: WidthType.DXA },
+function moneyCell(value: number, width: number, opts?: { bold?: boolean; fill?: string }) {
+  return textCell(formatBRL(value), width, {
+    align: AlignmentType.RIGHT,
+    bold: opts?.bold,
+    fill: opts?.fill,
+  })
+}
+
+function emptyNote(text: string) {
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 120 },
     children: [
-      new Paragraph({
-        alignment: AlignmentType.RIGHT,
-        children: [new TextRun({ text: formatBRL(value), size: 14 })],
+      new TextRun({
+        text,
+        italics: true,
+        size: 18,
+        color: "5A6B70",
       }),
     ],
+  })
+}
+
+function summaryTable(totals: PrestacaoExportTotals) {
+  const colLabel = 5200
+  const colValue = 3200
+  const width = colLabel + colValue
+  const lines: [string, number, boolean?][] = [
+    ["Bruto faturado / recebido", totals.bruto],
+    ["Taxa de cartão", totals.taxa],
+    ["Valor da clínica", totals.clinica],
+    ["Valor da profissional", totals.profissional],
+    ["Despesas do período", totals.despesas],
+    ["Saldo da clínica", totals.saldoClinica, true],
+  ]
+
+  return new Table({
+    width: { size: width, type: WidthType.DXA },
+    columnWidths: [colLabel, colValue],
+    alignment: AlignmentType.CENTER,
+    rows: lines.map(([label, value, highlight], i) => {
+      const fill = highlight ? "E8F2F2" : i % 2 === 0 ? "F7FAFA" : "FFFFFF"
+      return new TableRow({
+        children: [
+          textCell(label, colLabel, { bold: highlight, fill }),
+          moneyCell(value, colValue, { bold: true, fill }),
+        ],
+      })
+    }),
+  })
+}
+
+function revenueTable(rows: PrestacaoExportRow[]) {
+  const widths = [2100, 1100, 1000, 1700, 1150, 1150, 1160]
+  const header = new TableRow({
+    children: [
+      headerCell("Paciente", widths[0]),
+      headerCell("Pagamento", widths[1], AlignmentType.CENTER),
+      headerCell("Forma", widths[2], AlignmentType.CENTER),
+      headerCell("Descrição", widths[3]),
+      headerCell("Bruto", widths[4], AlignmentType.RIGHT),
+      headerCell("Clínica", widths[5], AlignmentType.RIGHT),
+      headerCell("Você", widths[6], AlignmentType.RIGHT),
+    ],
+  })
+
+  const body = rows.map((r, i) => {
+    const fill = i % 2 === 0 ? "FFFFFF" : "F7FAFA"
+    return new TableRow({
+      children: [
+        textCell(r.paciente, widths[0], { fill, bold: true }),
+        textCell(r.dataPagamento, widths[1], {
+          fill,
+          align: AlignmentType.CENTER,
+        }),
+        textCell(r.formaPagamento, widths[2], {
+          fill,
+          align: AlignmentType.CENTER,
+        }),
+        textCell(r.descricao || "—", widths[3], { fill }),
+        moneyCell(r.bruto, widths[4], { fill }),
+        moneyCell(r.clinica, widths[5], { fill }),
+        moneyCell(r.profissional, widths[6], { fill }),
+      ],
+    })
+  })
+
+  return new Table({
+    width: { size: PAGE_WIDTH, type: WidthType.DXA },
+    columnWidths: widths,
+    alignment: AlignmentType.CENTER,
+    rows: [header, ...body],
+  })
+}
+
+function expenseTable(rows: PrestacaoExportRow[]) {
+  const widths = [1400, 2800, 2760, 2400]
+  const header = new TableRow({
+    children: [
+      headerCell("Data", widths[0], AlignmentType.CENTER),
+      headerCell("Descrição", widths[1]),
+      headerCell("Categoria / paciente", widths[2]),
+      headerCell("Valor", widths[3], AlignmentType.RIGHT),
+    ],
+  })
+
+  const body = rows.map((r, i) => {
+    const fill = i % 2 === 0 ? "FFFFFF" : "F7FAFA"
+    const category =
+      r.paciente && r.paciente !== "—"
+        ? `${r.formaPagamento} · ${r.paciente}`
+        : r.formaPagamento
+    return new TableRow({
+      children: [
+        textCell(r.dataPagamento, widths[0], {
+          fill,
+          align: AlignmentType.CENTER,
+        }),
+        textCell(r.descricao || "—", widths[1], { fill }),
+        textCell(category, widths[2], { fill }),
+        moneyCell(r.despesa, widths[3], { fill, bold: true }),
+      ],
+    })
+  })
+
+  return new Table({
+    width: { size: PAGE_WIDTH, type: WidthType.DXA },
+    columnWidths: widths,
+    alignment: AlignmentType.CENTER,
+    rows: [header, ...body],
   })
 }
 
@@ -119,48 +287,127 @@ function buildWordDocument({
   rows,
   totals,
 }: PrestacaoExportProps) {
-  const headerRow = new TableRow({
-    children: [
-      headerCell("Tipo", 800),
-      headerCell("Pagamento", 1000),
-      headerCell("Recebimento", 1000),
-      headerCell("Paciente", 1400),
-      headerCell("Descrição", 1400),
-      headerCell("Forma", 900),
-      headerCell("Bruto", 900),
-      headerCell("Taxa", 800),
-      headerCell("Clínica", 900),
-      headerCell("Profissional", 1000),
-      headerCell("Despesa", 900),
-    ],
-  })
+  const revenues = rows.filter((r) => r.tipo === "Receita")
+  const expenses = rows.filter((r) => r.tipo === "Despesa")
+  const fromLabel = formatData(from)
+  const toLabel = formatData(to)
+  const crefitoLine = formatCrefitoLine(crefito)
+  const dateLong = formatReportDate()
 
-  const dataRows = rows.map(
-    (r) =>
-      new TableRow({
-        children: [
-          textCell(r.tipo, 800),
-          textCell(r.dataPagamento, 1000),
-          textCell(r.dataRecebimento, 1000),
-          textCell(r.paciente, 1400),
-          textCell(r.descricao, 1400),
-          textCell(r.formaPagamento, 900),
-          moneyCell(r.bruto, 900),
-          moneyCell(r.taxaCartao, 800),
-          moneyCell(r.clinica, 900),
-          moneyCell(r.profissional, 1000),
-          moneyCell(r.despesa, 900),
-        ],
-      }),
-  )
+  const children = [
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: "Saúde da mulher",
+          bold: true,
+          color: "2A6F77",
+          size: 30,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 160 },
+      border: {
+        bottom: {
+          color: "C5D4D4",
+          space: 10,
+          style: BorderStyle.SINGLE,
+          size: 12,
+        },
+      },
+    }),
+    new Paragraph({
+      text: "PRESTAÇÃO DE CONTAS",
+      heading: HeadingLevel.HEADING_1,
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 80, after: 280 },
+    }),
 
-  const totalLines: [string, number][] = [
-    ["Bruto", totals.bruto],
-    ["Taxa cartão", totals.taxa],
-    ["Valor clínica", totals.clinica],
-    ["Valor profissional", totals.profissional],
-    ["Despesas", totals.despesas],
-    ["Saldo clínica (clínica − despesas)", totals.saldoClinica],
+    sectionHeading("Identificação"),
+    bodyLine(`Profissional: ${professionalName}`),
+    bodyLine(crefitoLine),
+    bodyLine(`${periodLabel}: ${fromLabel} a ${toLabel}`, 160),
+
+    sectionHeading("Resumo do período"),
+    summaryTable(totals),
+
+    sectionHeading(
+      revenues.length === 1
+        ? "Receitas (1 lançamento)"
+        : `Receitas (${revenues.length} lançamentos)`,
+    ),
+    ...(revenues.length === 0
+      ? [emptyNote("Nenhuma receita neste período.")]
+      : [revenueTable(revenues)]),
+
+    sectionHeading(
+      expenses.length === 1
+        ? "Despesas (1 lançamento)"
+        : `Despesas (${expenses.length} lançamentos)`,
+    ),
+    ...(expenses.length === 0
+      ? [emptyNote("Nenhuma despesa neste período.")]
+      : [expenseTable(expenses)]),
+
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: dateLong,
+          size: 22,
+          color: "5A6B70",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 400, after: 280 },
+      border: {
+        top: {
+          color: "C5D4D4",
+          space: 16,
+          style: BorderStyle.SINGLE,
+          size: 6,
+        },
+      },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: professionalName,
+          bold: true,
+          size: 24,
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 60 },
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: crefitoLine,
+          size: 22,
+          color: "5A6B70",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: DEFAULT_PHONE,
+          size: 22,
+          color: "5A6B70",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({
+          text: "Fisioterapeuta",
+          size: 22,
+          color: "5A6B70",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+    }),
   ]
 
   return new DocxDocument({
@@ -168,90 +415,45 @@ function buildWordDocument({
       {
         properties: {
           page: {
-            margin: { top: 720, right: 576, bottom: 720, left: 576 },
+            margin: { top: 720, right: 850, bottom: 1000, left: 850 },
           },
         },
-        children: [
-          new Paragraph({
+        footers: {
+          default: new Footer({
             children: [
-              new TextRun({
-                text: "Prestação de contas — Clínica",
-                bold: true,
-                size: 28,
-                color: "2A6F77",
-              }),
-            ],
-            spacing: { after: 80 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `Profissional: ${professionalName}`,
-                size: 20,
-              }),
-            ],
-            spacing: { after: 20 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: formatCrefitoLine(crefito),
-                size: 18,
-                color: "5A6B70",
-              }),
-            ],
-            spacing: { after: 20 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `${periodLabel}: ${from} a ${to}`,
-                size: 18,
-              }),
-            ],
-            spacing: { after: 200 },
-          }),
-          new Table({
-            width: { size: 11000, type: WidthType.DXA },
-            rows: [headerRow, ...dataRows],
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: "Totais",
-                bold: true,
-                size: 22,
-                color: "2A6F77",
-              }),
-            ],
-            spacing: { before: 240, after: 80 },
-          }),
-          ...totalLines.map(
-            ([label, value]) =>
               new Paragraph({
+                border: {
+                  top: {
+                    color: "C5D4D4",
+                    space: 10,
+                    style: BorderStyle.SINGLE,
+                    size: 6,
+                  },
+                },
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 80, after: 40 },
                 children: [
-                  new TextRun({ text: `${label}: `, bold: true, size: 18 }),
-                  new TextRun({ text: formatBRL(value), size: 18 }),
+                  new TextRun({
+                    text: DEFAULT_ADDRESS_LINES[0],
+                    size: 16,
+                    color: "5A6B70",
+                  }),
                 ],
-                spacing: { after: 20 },
               }),
-          ),
-          new Paragraph({
-            children: [
-              new TextRun({ text: professionalName, bold: true, size: 18 }),
-            ],
-            spacing: { before: 280 },
-          }),
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: formatCrefitoLine(crefito),
-                size: 16,
-                color: "5A6B70",
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    text: DEFAULT_ADDRESS_LINES[1],
+                    size: 16,
+                    color: "5A6B70",
+                  }),
+                ],
               }),
             ],
           }),
-        ],
+        },
+        children,
       },
     ],
   })
