@@ -15,6 +15,8 @@ import {
   TextRun,
   HeadingLevel,
   AlignmentType,
+  Footer,
+  BorderStyle,
 } from "docx"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
@@ -45,7 +47,7 @@ const BRAND = "#2a6f77"
 const styles = StyleSheet.create({
   page: {
     paddingTop: 36,
-    paddingBottom: 56,
+    paddingBottom: 64,
     paddingHorizontal: 42,
     fontSize: 12,
     fontFamily: "Helvetica",
@@ -114,25 +116,21 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     textAlign: "center",
   },
-  letterhead: {
-    marginTop: 22,
-    paddingTop: 10,
-    borderTopWidth: 1,
+  footer: {
+    position: "absolute",
+    bottom: 28,
+    left: 42,
+    right: 42,
+    paddingTop: 8,
+    borderTopWidth: 0.75,
     borderTopColor: "#c5d4d4",
     alignItems: "center",
   },
-  letterheadBuilding: {
-    fontSize: 10,
-    fontFamily: "Helvetica-Bold",
-    color: BRAND,
-    textAlign: "center",
-    marginBottom: 2,
-  },
-  letterheadLine: {
+  footerLine: {
     fontSize: 9,
     color: "#5a6b70",
     textAlign: "center",
-    marginBottom: 1,
+    marginBottom: 2,
   },
 })
 
@@ -204,10 +202,9 @@ function PhysioReportDocument({ data }: { data: PhysioReportPdfData }) {
           <Text style={styles.signatureMeta}>Fisioterapeuta</Text>
         </View>
 
-        <View style={styles.letterhead}>
-          <Text style={styles.letterheadBuilding}>{DEFAULT_ADDRESS_LINES[0]}</Text>
-          <Text style={styles.letterheadLine}>{DEFAULT_ADDRESS_LINES[1]}</Text>
-          <Text style={styles.letterheadLine}>{DEFAULT_ADDRESS_LINES[2]}</Text>
+        <View style={styles.footer} fixed>
+          <Text style={styles.footerLine}>{DEFAULT_ADDRESS_LINES[0]}</Text>
+          <Text style={styles.footerLine}>{DEFAULT_ADDRESS_LINES[1]}</Text>
         </View>
       </Page>
     </Document>
@@ -278,11 +275,46 @@ export function DownloadPhysioReportWordButton({
             page: {
               margin: {
                 top: 720,
-                bottom: 720,
+                bottom: 1000,
                 left: 850,
                 right: 850,
               },
             },
+          },
+          footers: {
+            default: new Footer({
+              children: [
+                new Paragraph({
+                  border: {
+                    top: {
+                      color: "C5D4D4",
+                      space: 10,
+                      style: BorderStyle.SINGLE,
+                      size: 6,
+                    },
+                  },
+                  children: [
+                    new TextRun({
+                      text: DEFAULT_ADDRESS_LINES[0],
+                      size: 16,
+                      color: "5A6B70",
+                    }),
+                  ],
+                  alignment: AlignmentType.CENTER,
+                  spacing: { before: 80, after: 40 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: DEFAULT_ADDRESS_LINES[1],
+                      size: 16,
+                      color: "5A6B70",
+                    }),
+                  ],
+                  alignment: AlignmentType.CENTER,
+                }),
+              ],
+            }),
           },
           children: [
             new Paragraph({
@@ -376,48 +408,6 @@ export function DownloadPhysioReportWordButton({
                 new TextRun({
                   text: "Fisioterapeuta",
                   size: 22,
-                  color: "5A6B70",
-                }),
-              ],
-              alignment: AlignmentType.CENTER,
-              spacing: { after: 280 },
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: DEFAULT_ADDRESS_LINES[0],
-                  bold: true,
-                  size: 18,
-                  color: "2A6F77",
-                }),
-              ],
-              alignment: AlignmentType.CENTER,
-              spacing: { before: 200, after: 40 },
-              border: {
-                top: {
-                  color: "C5D4D4",
-                  space: 12,
-                  style: "single",
-                  size: 6,
-                },
-              },
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: DEFAULT_ADDRESS_LINES[1],
-                  size: 16,
-                  color: "5A6B70",
-                }),
-              ],
-              alignment: AlignmentType.CENTER,
-              spacing: { after: 20 },
-            }),
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: DEFAULT_ADDRESS_LINES[2],
-                  size: 16,
                   color: "5A6B70",
                 }),
               ],

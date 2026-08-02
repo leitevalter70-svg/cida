@@ -1285,15 +1285,12 @@ export function UroginecoAssessmentForm({
               </p>
               <p className="text-sm text-muted-foreground">{DEFAULT_PHONE}</p>
               <p className="text-sm text-muted-foreground">Fisioterapeuta</p>
-              <div className="mt-3 space-y-0.5 border-t border-border/60 pt-3 text-center">
-                <p className="text-xs font-semibold text-primary">
+              <div className="mt-4 space-y-0.5 border-t border-border/60 pt-3 text-center">
+                <p className="text-xs text-muted-foreground">
                   {DEFAULT_ADDRESS_LINES[0]}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {DEFAULT_ADDRESS_LINES[1]}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {DEFAULT_ADDRESS_LINES[2]}
                 </p>
               </div>
               <p className="pt-1 text-xs text-muted-foreground">
