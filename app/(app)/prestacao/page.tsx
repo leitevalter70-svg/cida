@@ -10,6 +10,7 @@ import {
 } from "@/components/period-filter"
 import {
   PrestacaoExcelButton,
+  PrestacaoWordButton,
   type PrestacaoExportRow,
 } from "@/components/prestacao-export"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -200,6 +201,22 @@ export default async function PrestacaoPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <PrestacaoExcelButton
+            from={from}
+            to={to}
+            professionalName={credentials.professionalName}
+            crefito={credentials.crefito}
+            periodLabel={periodLabel}
+            rows={exportRows}
+            totals={{
+              bruto: revenueTotals.bruto,
+              taxa: revenueTotals.taxa,
+              clinica: revenueTotals.clinica,
+              profissional: revenueTotals.profissional,
+              despesas: despesasTotal,
+              saldoClinica,
+            }}
+          />
+          <PrestacaoWordButton
             from={from}
             to={to}
             professionalName={credentials.professionalName}
