@@ -4,14 +4,14 @@
   "private": true,
   "scripts": {
     "predev": "node scripts/ensure-env.mjs",
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "prebuild": "node scripts/ensure-env.mjs",
     "build": "next build",
     "prestart": "node scripts/ensure-env.mjs",
-    "start": "next start",
+    "start": "next start -p 3001",
     "env:check": "node scripts/ensure-env.mjs",
     "lint": "eslint .",
-    "test:finance": "npx tsx lib/finance/split.test.ts",
+    "test:finance": "npx tsx lib/finance/split.test.ts && npx tsx lib/finance/package-balance.test.ts",
     "db:push": "supabase db push",
     "db:link": "supabase link"
   },

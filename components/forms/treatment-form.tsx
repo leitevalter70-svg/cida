@@ -128,7 +128,7 @@ export function TreatmentForm({
             name="installment_count"
             type="number"
             min={1}
-            defaultValue={4}
+            defaultValue={1}
             disabled={kind === "avulso"}
           />
           <p className="text-xs text-muted-foreground">

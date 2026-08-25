@@ -86,8 +86,16 @@ export async function fetchPendingPaymentAlerts(): Promise<
     )
     const treatmentMap = new Map(activeTreatments.map((t) => [t.id, t]))
 
-    const nextByTreatment = new Map<string, (typeof installments)[number]>()
-    for (const inst of installments ?? []) {
+    type InstallmentRow = {
+      id: string
+      treatment_id: string
+      sequence_number: number
+      amount: number
+      due_date: string | null
+      status: string
+    }
+    const nextByTreatment = new Map<string, InstallmentRow>()
+    for (const inst of (installments ?? []) as InstallmentRow[]) {
       if (!treatmentMap.has(inst.treatment_id)) continue
       if (!nextByTreatment.has(inst.treatment_id)) {
         nextByTreatment.set(inst.treatment_id, inst)

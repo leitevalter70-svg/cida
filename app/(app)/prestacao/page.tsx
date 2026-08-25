@@ -120,7 +120,7 @@ export default async function PrestacaoPage({
       professional: 0,
       card: 0,
       count: 0,
-      items: [],
+      items: [] as typeof revenues,
     }
     current.gross += Number(r.gross_amount)
     current.clinic += Number(r.clinic_net_amount)

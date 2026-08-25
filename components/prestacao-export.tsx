@@ -100,7 +100,14 @@ function bodyLine(text: string, after = 40) {
   })
 }
 
-function headerCell(text: string, width: number, align: typeof AlignmentType.LEFT | typeof AlignmentType.RIGHT = AlignmentType.LEFT) {
+function headerCell(
+  text: string,
+  width: number,
+  align:
+    | typeof AlignmentType.LEFT
+    | typeof AlignmentType.RIGHT
+    | typeof AlignmentType.CENTER = AlignmentType.LEFT,
+) {
   return new TableCell({
     borders: CELL_BORDERS,
     width: { size: width, type: WidthType.DXA },

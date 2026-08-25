@@ -528,6 +528,10 @@ export default async function PacienteDetailPage({
                       <p className="text-xs text-muted-foreground">
                         {t.kind === "avulso" ? "Avulso · por sessão" : "Pacote"} ·{" "}
                         {t.status}
+                        {t.kind === "pacote" &&
+                        Number(t.total_amount) > 0
+                          ? ` · ${formatBRL(Number(t.total_amount))}`
+                          : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">

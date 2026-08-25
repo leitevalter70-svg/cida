@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState, useTransition } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
   createRevenue,
@@ -20,6 +21,44 @@ import { Badge } from "@/components/ui/badge"
 import { formatBRL, formatData, todayISO } from "@/lib/format"
 import { computeSettledAt } from "@/lib/professional"
 import { DownloadReceiptButton } from "@/components/receipt-pdf"
+import { packageBalanceFor } from "@/lib/finance/package-balance"
+import { cn } from "@/lib/utils"
+
+function isTreatmentPaid(
+  treatmentId: string,
+  treatments: Treatment[],
+  installments: Installment[],
+  revenues: RevenueRecord[],
+) {
+  return packageBalanceFor(treatmentId, treatments, installments, revenues)
+    .alreadyPaid
+}
+
+/** Prefere tratamento em aberto; senão o indicado; senão o primeiro da paciente. */
+function pickPreferredTreatmentId(
+  patientId: string,
+  treatments: Treatment[],
+  installments: Installment[],
+  revenues: RevenueRecord[],
+  preferredId = "",
+) {
+  const patientTreatments = treatments.filter((t) => t.patient_id === patientId)
+  if (
+    preferredId &&
+    patientTreatments.some((t) => t.id === preferredId) &&
+    !isTreatmentPaid(preferredId, treatments, installments, revenues)
+  ) {
+    return preferredId
+  }
+  const open = patientTreatments.find(
+    (t) => !isTreatmentPaid(t.id, treatments, installments, revenues),
+  )
+  if (open) return open.id
+  if (preferredId && patientTreatments.some((t) => t.id === preferredId)) {
+    return preferredId
+  }
+  return patientTreatments[0]?.id || ""
+}
 
 type Settings = {
   clinic_percent: number
@@ -89,88 +128,10 @@ type Suggestion = {
   description: string
 }
 
-type PackageBalance = {
-  amount: number
-  count: number
-  alreadyPaid: boolean
-  paidAmount: number
-  paidLabel: string | null
-}
-
 /** Preço de uma sessão no avulso (= valor cadastrado no tratamento). */
 function sessionPrice(treatment: Treatment | undefined) {
   if (!treatment) return 0
   return Number(treatment.total_amount) || 0
-}
-
-function packageBalanceFor(
-  treatmentId: string,
-  treatments: Treatment[],
-  installments: Installment[],
-  revenues: RevenueRecord[],
-): PackageBalance {
-  const treatment = treatments.find((t) => t.id === treatmentId)
-  const total = Number(treatment?.total_amount) || 0
-  const forTreatment = installments.filter(
-    (i) => !treatmentId || i.treatment_id === treatmentId,
-  )
-  const pending = forTreatment.filter((i) => i.status !== "paga")
-  const treatmentRevenues = revenues.filter(
-    (r) => r.treatment_id && r.treatment_id === treatmentId,
-  )
-  const paidAmount = treatmentRevenues.reduce(
-    (s, r) => s + Number(r.gross_amount),
-    0,
-  )
-  const latestPaid = treatmentRevenues[0]
-  const paidLabel = latestPaid
-    ? `${formatData(latestPaid.revenue_date)} · ${formatBRL(Number(latestPaid.gross_amount))}`
-    : null
-
-  if (pending.length > 0) {
-    return {
-      amount: pending.reduce((s, i) => s + Number(i.amount), 0),
-      count: pending.length,
-      alreadyPaid: false,
-      paidAmount,
-      paidLabel,
-    }
-  }
-
-  // Há parcelas e todas pagas, ou já existe receita cobrindo o pacote.
-  const installmentsAllPaid =
-    forTreatment.length > 0 && pending.length === 0
-  const revenuesCoverPackage =
-    total > 0 && paidAmount >= total - 0.009
-
-  if (installmentsAllPaid || revenuesCoverPackage) {
-    return {
-      amount: 0,
-      count: 0,
-      alreadyPaid: true,
-      paidAmount,
-      paidLabel,
-    }
-  }
-
-  // Pacote sem parcelas e sem receita: pode lançar à vista.
-  if (forTreatment.length === 0 && paidAmount <= 0 && total > 0) {
-    return {
-      amount: total,
-      count: 0,
-      alreadyPaid: false,
-      paidAmount: 0,
-      paidLabel: null,
-    }
-  }
-
-  return {
-    amount: 0,
-    count: 0,
-    alreadyPaid: paidAmount > 0,
-    paidAmount,
-    paidLabel,
-  }
 }
 
 function suggestFromCadastro(
@@ -491,9 +452,13 @@ function RevenueForm({
 
   const initialTreatmentId =
     revenue?.treatment_id ||
-    defaultTreatmentId ||
-    treatments.find((t) => t.patient_id === patientId)?.id ||
-    ""
+    pickPreferredTreatmentId(
+      patientId,
+      treatments,
+      installments,
+      revenues,
+      defaultTreatmentId,
+    )
 
   const initial = revenue
     ? {
@@ -814,30 +779,42 @@ function RevenueForm({
 
       {packageAlreadyPaid && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-950 dark:text-amber-100">
-          <p className="font-medium">Este pacote já está quitado</p>
+          <p className="font-medium">Este tratamento já está quitado</p>
           <p className="mt-1 text-xs opacity-90">
             {packageBalance.paidLabel
-              ? `Já existe lançamento de ${packageBalance.paidLabel}.`
-              : "Já existe receita para este tratamento."}{" "}
-            Não lance de novo — isso duplicaria na prestação. Para mudar a data
-            (ex.: 24/08) ou o valor, use{" "}
-            <strong>Corrigir</strong> na receita da lista ao lado.
+              ? `Já existe lançamento de ${packageBalance.paidLabel} neste pacote.`
+              : "Já existe receita para este tratamento."}
           </p>
-          {existingTreatmentRevenue && onEditExisting && (
-            <Button
-              type="button"
-              size="sm"
-              className="mt-2"
-              onClick={() => onEditExisting(existingTreatmentRevenue)}
+          <p className="mt-2 text-xs opacity-90">
+            Se a paciente comprou um <strong>pacote novo</strong>, primeiro crie
+            o novo tratamento e selecione-o aqui — não use o pacote antigo.
+            Se for só alterar data/valor deste lançamento, use{" "}
+            <strong>Corrigir</strong>.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Link
+              href={`/tratamentos?paciente=${patientId}`}
+              className={cn(
+                "inline-flex h-7 items-center rounded-lg border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted",
+              )}
             >
-              Corrigir receita existente
-            </Button>
-          )}
+              Criar pacote novo
+            </Link>
+            {existingTreatmentRevenue && onEditExisting && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => onEditExisting(existingTreatmentRevenue)}
+              >
+                Corrigir receita existente
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
       <div className="space-y-1.5">
-        <Label htmlFor="treatment_id">Tratamento</Label>
+        <Label htmlFor="treatment_id">Tratamento / pacote</Label>
         <select
           id="treatment_id"
           name="treatment_id"
@@ -845,17 +822,29 @@ function RevenueForm({
           value={treatmentId}
           onChange={(e) => onTreatmentChange(e.target.value)}
         >
-          <option value="">Opcional</option>
-          {patientTreatments.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.protocol_name}
-              {t.kind === "avulso" ? " · por sessão" : " · pacote"}
-              {Number(t.total_amount) > 0
-                ? ` · ${formatBRL(Number(t.total_amount))}`
-                : ""}
-            </option>
-          ))}
+          <option value="">Selecione o pacote</option>
+          {patientTreatments.map((t) => {
+            const paid = isTreatmentPaid(
+              t.id,
+              treatments,
+              installments,
+              revenues,
+            )
+            return (
+              <option key={t.id} value={t.id}>
+                {t.protocol_name}
+                {t.kind === "avulso" ? " · por sessão" : " · pacote"}
+                {Number(t.total_amount) > 0
+                  ? ` · ${formatBRL(Number(t.total_amount))}`
+                  : ""}
+                {paid ? " · quitado" : " · em aberto"}
+              </option>
+            )
+          })}
         </select>
+        <p className="text-xs text-muted-foreground">
+          Pacote novo = tratamento novo. O quitado fica marcado na lista.
+        </p>
       </div>
 
       <div className="space-y-1.5">
