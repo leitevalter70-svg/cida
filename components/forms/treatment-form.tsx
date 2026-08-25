@@ -134,7 +134,7 @@ export function TreatmentForm({
           <p className="text-xs text-muted-foreground">
             {kind === "avulso"
               ? "Não se aplica ao pagamento por sessão."
-              : "Vencimentos semanais a partir do início (PIX/dinheiro)."}
+              : "Use 1 se a paciente pagar o pacote à vista no PIX. Vencimentos semanais se forem várias."}
           </p>
         </div>
         <div className="space-y-1.5">

@@ -78,6 +78,9 @@ type ProfessionalInfo = {
 
 type PaymentMode = "parcela" | "sessao"
 
+/** Valor especial do select: pagar o restante do pacote em um único lançamento. */
+const FULL_PACKAGE = "__full__"
+
 type Suggestion = {
   mode: PaymentMode
   installmentId: string
@@ -90,6 +93,27 @@ type Suggestion = {
 function sessionPrice(treatment: Treatment | undefined) {
   if (!treatment) return 0
   return Number(treatment.total_amount) || 0
+}
+
+function pendingPackageBalance(
+  treatmentId: string,
+  treatments: Treatment[],
+  installments: Installment[],
+) {
+  const treatment = treatments.find((t) => t.id === treatmentId)
+  const pending = installments.filter(
+    (i) =>
+      i.status !== "paga" &&
+      (!treatmentId || i.treatment_id === treatmentId),
+  )
+  if (pending.length > 0) {
+    return {
+      amount: pending.reduce((s, i) => s + Number(i.amount), 0),
+      count: pending.length,
+    }
+  }
+  const total = Number(treatment?.total_amount) || 0
+  return { amount: total, count: 0 }
 }
 
 function suggestFromCadastro(
@@ -141,6 +165,20 @@ function suggestFromCadastro(
       description: `Parcela ${first.sequence_number}${
         treatment ? ` — ${treatment.protocol_name}` : ""
       }`,
+    }
+  }
+
+  // Pacote sem parcelas (ou só pagas): oferece à vista pelo valor total.
+  const balance = pendingPackageBalance(treatmentId, treatments, installments)
+  if (balance.amount > 0) {
+    return {
+      mode: "parcela",
+      installmentId: FULL_PACKAGE,
+      sessionId: "",
+      gross: balance.amount,
+      description: treatment
+        ? `Parcela única — ${treatment.protocol_name}`
+        : "Pacote à vista",
     }
   }
 
@@ -480,6 +518,13 @@ function RevenueForm({
       (!treatmentId || i.treatment_id === treatmentId) &&
       (i.status !== "paga" || i.id === revenue?.installment_id),
   )
+  const packageBalance = pendingPackageBalance(
+    treatmentId,
+    treatments,
+    installments,
+  )
+  const canPayFullPackage =
+    isPackage && !isEdit && packageBalance.amount > 0
   const unpaidSessions = sessions.filter(
     (s) =>
       (!s.paid || s.id === revenue?.session_id) &&
@@ -487,6 +532,24 @@ function RevenueForm({
         s.treatment_id === treatmentId ||
         s.treatment_id == null),
   )
+
+  function applyFullPackagePayment() {
+    const balance = pendingPackageBalance(
+      treatmentId,
+      treatments,
+      installments,
+    )
+    setInstallmentId(FULL_PACKAGE)
+    setSessionId("")
+    setGross(balance.amount)
+    setDescription(
+      selectedTreatment
+        ? balance.count <= 1
+          ? `Parcela única — ${selectedTreatment.protocol_name}`
+          : `Pacote à vista (${balance.count} parcelas) — ${selectedTreatment.protocol_name}`
+        : "Pacote à vista",
+    )
+  }
 
   function applySuggestion(nextTreatmentId: string, preferredSession = "") {
     if (isEdit) return
@@ -523,6 +586,8 @@ function RevenueForm({
             selectedTreatment ? ` — ${selectedTreatment.protocol_name}` : ""
           }`,
         )
+      } else if (canPayFullPackage || packageBalance.amount > 0) {
+        applyFullPackagePayment()
       } else {
         setInstallmentId("")
         setGross(0)
@@ -543,6 +608,10 @@ function RevenueForm({
   }
 
   function onInstallmentChange(nextId: string) {
+    if (nextId === FULL_PACKAGE) {
+      applyFullPackagePayment()
+      return
+    }
     setInstallmentId(nextId)
     const inst = installments.find((i) => i.id === nextId)
     if (inst) {
@@ -571,12 +640,14 @@ function RevenueForm({
     const form = e.currentTarget
     const fd = new FormData(form)
     const usesCard = isCardPayment(method)
-    const linkedInstallment = mode === "parcela" ? installmentId : ""
+    const isFullPackage = mode === "parcela" && installmentId === FULL_PACKAGE
+    const linkedInstallment =
+      mode === "parcela" && !isFullPackage ? installmentId : ""
     const linkedSession = mode === "sessao" ? sessionId : ""
 
-    if (mode === "parcela" && !linkedInstallment && isPackage) {
+    if (mode === "parcela" && !linkedInstallment && !isFullPackage && isPackage) {
       setSaveError(
-        "No pacote, vincule uma parcela. Isso evita lançar o valor total de novo na prestação.",
+        "No pacote, escolha uma parcela ou “À vista (pacote completo)”.",
       )
       return
     }
@@ -595,6 +666,7 @@ function RevenueForm({
     fd.set("treatment_id", treatmentId)
     fd.set("installment_id", linkedInstallment)
     fd.set("session_id", linkedSession)
+    fd.set("pay_full_package", isFullPackage ? "true" : "false")
     fd.set("clinic_shares_card_fee", usesCard && sharesFee ? "true" : "false")
     fd.set("clinic_percent", String(clinicPercent))
     fd.set("card_fee_percent", String(usesCard ? cardPercent : 0))
@@ -687,7 +759,7 @@ function RevenueForm({
         </div>
         <p className="text-xs text-muted-foreground">
           {mode === "parcela"
-            ? "Baixa só a parcela escolhida — não soma o valor total do pacote de novo."
+            ? "Baixa a parcela escolhida, ou use “À vista” se a paciente pagou o pacote inteiro no PIX."
             : "Uma sessão = uma receita. Não mexe nas parcelas do pacote."}
         </p>
       </div>
@@ -701,9 +773,14 @@ function RevenueForm({
             className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
             value={installmentId}
             onChange={(e) => onInstallmentChange(e.target.value)}
-            required={isPackage}
+            required={isPackage && !canPayFullPackage}
           >
             <option value="">Selecione a parcela</option>
+            {canPayFullPackage && (
+              <option value={FULL_PACKAGE}>
+                À vista — pacote completo ({formatBRL(packageBalance.amount)})
+              </option>
+            )}
             {filteredInstallments.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.sequence_number}ª · {formatBRL(Number(i.amount))}
@@ -711,6 +788,18 @@ function RevenueForm({
               </option>
             ))}
           </select>
+          {isPackage && filteredInstallments.length === 0 && canPayFullPackage && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Não há parcelas listadas. Escolha “À vista — pacote completo” para
+              lançar o PIX de {formatBRL(packageBalance.amount)} de uma vez.
+            </p>
+          )}
+          {installmentId === FULL_PACKAGE && (
+            <p className="text-xs text-muted-foreground">
+              Um único lançamento na prestação; baixa todas as parcelas em
+              aberto deste pacote.
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -788,7 +877,9 @@ function RevenueForm({
         {!isEdit && (
           <p className="text-xs text-muted-foreground">
             {mode === "parcela"
-              ? "Valor da parcela — não usa o total do pacote."
+              ? installmentId === FULL_PACKAGE
+                ? "Valor total pago à vista (PIX/dinheiro) — uma linha na prestação."
+                : "Valor da parcela — não usa o total do pacote."
               : "Valor por sessão cadastrado no tratamento avulso."}
           </p>
         )}

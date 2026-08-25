@@ -449,6 +449,93 @@ export async function createTreatment(formData: FormData) {
 
 export async function createRevenue(formData: FormData) {
   const { supabase, userId } = await getUserId()
+
+  const payFullPackage = formData.get("pay_full_package") === "true"
+  const treatmentId = (formData.get("treatment_id") as string) || ""
+  let pendingInstallmentIds: string[] = []
+
+  if (payFullPackage && treatmentId) {
+    const { data: treatment, error: tErr } = await supabase
+      .from("treatments")
+      .select(
+        "id, kind, total_amount, protocol_name, started_at, installment_count",
+      )
+      .eq("id", treatmentId)
+      .eq("user_id", userId)
+      .single()
+
+    if (tErr || !treatment) {
+      throw new Error(tErr?.message || "Tratamento não encontrado")
+    }
+    if (treatment.kind !== "pacote") {
+      throw new Error(
+        "Pagamento à vista do pacote só vale para tratamentos em pacote.",
+      )
+    }
+
+    const { data: existing } = await supabase
+      .from("installments")
+      .select("id, amount, status, sequence_number")
+      .eq("treatment_id", treatmentId)
+      .eq("user_id", userId)
+      .order("sequence_number", { ascending: true })
+
+    let pending = (existing ?? []).filter((i) => i.status !== "paga")
+
+    if (pending.length === 0 && (existing ?? []).length === 0) {
+      const total = Number(treatment.total_amount) || 0
+      if (total <= 0) {
+        throw new Error(
+          "Pacote sem valor e sem parcelas. Ajuste o valor do tratamento antes de lançar.",
+        )
+      }
+      const startedAt =
+        treatment.started_at || new Date().toISOString().slice(0, 10)
+      const { data: created, error: cErr } = await supabase
+        .from("installments")
+        .insert({
+          user_id: userId,
+          treatment_id: treatmentId,
+          sequence_number: 1,
+          amount: total,
+          due_date: weeklyDueDate(startedAt, 1),
+          status: "pendente",
+        })
+        .select("id, amount, status, sequence_number")
+        .single()
+      if (cErr || !created) {
+        throw new Error(
+          cErr?.message || "Não foi possível criar a parcela à vista.",
+        )
+      }
+      pending = [created]
+    }
+
+    if (pending.length === 0) {
+      throw new Error(
+        "Todas as parcelas deste pacote já estão pagas. Corrija a receita existente se precisar.",
+      )
+    }
+
+    const remaining = pending.reduce((s, i) => s + Number(i.amount), 0)
+    const grossFromForm = Number(formData.get("gross_amount") || 0)
+    if (!grossFromForm || grossFromForm <= 0) {
+      formData.set("gross_amount", String(remaining))
+    }
+    if (!String(formData.get("description") || "").trim()) {
+      formData.set(
+        "description",
+        pending.length === 1
+          ? `Parcela única — ${treatment.protocol_name}`
+          : `Pacote à vista (${pending.length} parcelas) — ${treatment.protocol_name}`,
+      )
+    }
+
+    formData.set("installment_id", pending[0].id)
+    formData.set("session_id", "")
+    pendingInstallmentIds = pending.map((i) => i.id)
+  }
+
   const payload = await buildRevenuePayload(formData, userId, supabase)
   await assertRevenueLinksAvailable(supabase, userId, payload)
 
@@ -461,12 +548,18 @@ export async function createRevenue(formData: FormData) {
     throw new Error(friendlyRevenueLinkError(error.message))
   }
 
-  const installmentId = payload.installment_id || ""
-  if (installmentId) {
+  const installmentIdsToPay =
+    pendingInstallmentIds.length > 0
+      ? pendingInstallmentIds
+      : payload.installment_id
+        ? [payload.installment_id]
+        : []
+
+  if (installmentIdsToPay.length > 0) {
     await supabase
       .from("installments")
       .update({ status: "paga", paid_at: new Date().toISOString().slice(0, 10) })
-      .eq("id", installmentId)
+      .in("id", installmentIdsToPay)
       .eq("user_id", userId)
   }
 
