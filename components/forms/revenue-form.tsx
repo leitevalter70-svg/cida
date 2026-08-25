@@ -89,31 +89,88 @@ type Suggestion = {
   description: string
 }
 
+type PackageBalance = {
+  amount: number
+  count: number
+  alreadyPaid: boolean
+  paidAmount: number
+  paidLabel: string | null
+}
+
 /** Preço de uma sessão no avulso (= valor cadastrado no tratamento). */
 function sessionPrice(treatment: Treatment | undefined) {
   if (!treatment) return 0
   return Number(treatment.total_amount) || 0
 }
 
-function pendingPackageBalance(
+function packageBalanceFor(
   treatmentId: string,
   treatments: Treatment[],
   installments: Installment[],
-) {
+  revenues: RevenueRecord[],
+): PackageBalance {
   const treatment = treatments.find((t) => t.id === treatmentId)
-  const pending = installments.filter(
-    (i) =>
-      i.status !== "paga" &&
-      (!treatmentId || i.treatment_id === treatmentId),
+  const total = Number(treatment?.total_amount) || 0
+  const forTreatment = installments.filter(
+    (i) => !treatmentId || i.treatment_id === treatmentId,
   )
+  const pending = forTreatment.filter((i) => i.status !== "paga")
+  const treatmentRevenues = revenues.filter(
+    (r) => r.treatment_id && r.treatment_id === treatmentId,
+  )
+  const paidAmount = treatmentRevenues.reduce(
+    (s, r) => s + Number(r.gross_amount),
+    0,
+  )
+  const latestPaid = treatmentRevenues[0]
+  const paidLabel = latestPaid
+    ? `${formatData(latestPaid.revenue_date)} · ${formatBRL(Number(latestPaid.gross_amount))}`
+    : null
+
   if (pending.length > 0) {
     return {
       amount: pending.reduce((s, i) => s + Number(i.amount), 0),
       count: pending.length,
+      alreadyPaid: false,
+      paidAmount,
+      paidLabel,
     }
   }
-  const total = Number(treatment?.total_amount) || 0
-  return { amount: total, count: 0 }
+
+  // Há parcelas e todas pagas, ou já existe receita cobrindo o pacote.
+  const installmentsAllPaid =
+    forTreatment.length > 0 && pending.length === 0
+  const revenuesCoverPackage =
+    total > 0 && paidAmount >= total - 0.009
+
+  if (installmentsAllPaid || revenuesCoverPackage) {
+    return {
+      amount: 0,
+      count: 0,
+      alreadyPaid: true,
+      paidAmount,
+      paidLabel,
+    }
+  }
+
+  // Pacote sem parcelas e sem receita: pode lançar à vista.
+  if (forTreatment.length === 0 && paidAmount <= 0 && total > 0) {
+    return {
+      amount: total,
+      count: 0,
+      alreadyPaid: false,
+      paidAmount: 0,
+      paidLabel: null,
+    }
+  }
+
+  return {
+    amount: 0,
+    count: 0,
+    alreadyPaid: paidAmount > 0,
+    paidAmount,
+    paidLabel,
+  }
 }
 
 function suggestFromCadastro(
@@ -121,6 +178,7 @@ function suggestFromCadastro(
   treatments: Treatment[],
   installments: Installment[],
   sessions: SessionOption[],
+  revenues: RevenueRecord[],
   preferredSessionId = "",
 ): Suggestion {
   const treatment = treatments.find((t) => t.id === treatmentId)
@@ -168,26 +226,30 @@ function suggestFromCadastro(
     }
   }
 
-  // Pacote sem parcelas (ou só pagas): oferece à vista pelo valor total.
-  const balance = pendingPackageBalance(treatmentId, treatments, installments)
-  if (balance.amount > 0) {
+  const balance = packageBalanceFor(
+    treatmentId,
+    treatments,
+    installments,
+    revenues,
+  )
+  if (balance.alreadyPaid || balance.amount <= 0) {
     return {
       mode: "parcela",
-      installmentId: FULL_PACKAGE,
+      installmentId: "",
       sessionId: "",
-      gross: balance.amount,
-      description: treatment
-        ? `Parcela única — ${treatment.protocol_name}`
-        : "Pacote à vista",
+      gross: 0,
+      description: "",
     }
   }
 
   return {
     mode: "parcela",
-    installmentId: "",
+    installmentId: FULL_PACKAGE,
     sessionId: "",
-    gross: 0,
-    description: "",
+    gross: balance.amount,
+    description: treatment
+      ? `Parcela única — ${treatment.protocol_name}`
+      : "Pacote à vista",
   }
 }
 
@@ -258,12 +320,14 @@ export function PatientRevenuePanel({
             treatments={treatments}
             installments={installments}
             sessions={sessions}
+            revenues={revenues}
             settings={settings}
             defaultTreatmentId={defaultTreatmentId}
             defaultSessionId={defaultSessionId}
             revenue={editing}
             onCancelEdit={() => setEditing(null)}
             onSaved={() => setEditing(null)}
+            onEditExisting={(r) => setEditing(r)}
           />
         </div>
       </div>
@@ -397,24 +461,28 @@ function RevenueForm({
   treatments,
   installments,
   sessions,
+  revenues = [],
   settings,
   defaultTreatmentId = "",
   defaultSessionId = "",
   revenue,
   onCancelEdit,
   onSaved,
+  onEditExisting,
 }: {
   patientId: string
   patientName?: string
   treatments: Treatment[]
   installments: Installment[]
   sessions: SessionOption[]
+  revenues?: RevenueRecord[]
   settings: Settings | null
   defaultTreatmentId?: string
   defaultSessionId?: string
   revenue?: RevenueRecord | null
   onCancelEdit?: () => void
   onSaved?: () => void
+  onEditExisting?: (revenue: RevenueRecord) => void
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -442,6 +510,7 @@ function RevenueForm({
         treatments,
         installments,
         sessions,
+        revenues,
         defaultSessionId,
       )
 
@@ -518,13 +587,18 @@ function RevenueForm({
       (!treatmentId || i.treatment_id === treatmentId) &&
       (i.status !== "paga" || i.id === revenue?.installment_id),
   )
-  const packageBalance = pendingPackageBalance(
+  const packageBalance = packageBalanceFor(
     treatmentId,
     treatments,
     installments,
+    revenues,
   )
   const canPayFullPackage =
-    isPackage && !isEdit && packageBalance.amount > 0
+    isPackage && !isEdit && packageBalance.amount > 0 && !packageBalance.alreadyPaid
+  const packageAlreadyPaid = isPackage && !isEdit && packageBalance.alreadyPaid
+  const existingTreatmentRevenue = revenues.find(
+    (r) => r.treatment_id === treatmentId,
+  )
   const unpaidSessions = sessions.filter(
     (s) =>
       (!s.paid || s.id === revenue?.session_id) &&
@@ -534,11 +608,18 @@ function RevenueForm({
   )
 
   function applyFullPackagePayment() {
-    const balance = pendingPackageBalance(
+    const balance = packageBalanceFor(
       treatmentId,
       treatments,
       installments,
+      revenues,
     )
+    if (balance.alreadyPaid || balance.amount <= 0) {
+      setInstallmentId("")
+      setGross(0)
+      setDescription("")
+      return
+    }
     setInstallmentId(FULL_PACKAGE)
     setSessionId("")
     setGross(balance.amount)
@@ -558,6 +639,7 @@ function RevenueForm({
       treatments,
       installments,
       sessions,
+      revenues,
       preferredSession,
     )
     setMode(suggested.mode)
@@ -586,7 +668,7 @@ function RevenueForm({
             selectedTreatment ? ` — ${selectedTreatment.protocol_name}` : ""
           }`,
         )
-      } else if (canPayFullPackage || packageBalance.amount > 0) {
+      } else if (canPayFullPackage) {
         applyFullPackagePayment()
       } else {
         setInstallmentId("")
@@ -644,6 +726,15 @@ function RevenueForm({
     const linkedInstallment =
       mode === "parcela" && !isFullPackage ? installmentId : ""
     const linkedSession = mode === "sessao" ? sessionId : ""
+
+    if (packageAlreadyPaid && !isEdit) {
+      setSaveError(
+        packageBalance.paidLabel
+          ? `Este pacote já está quitado (${packageBalance.paidLabel}). Use Corrigir na lista ao lado para alterar data ou valor — não lance de novo.`
+          : "Este pacote já está quitado. Use Corrigir na lista ao lado para alterar a receita existente.",
+      )
+      return
+    }
 
     if (mode === "parcela" && !linkedInstallment && !isFullPackage && isPackage) {
       setSaveError(
@@ -721,6 +812,30 @@ function RevenueForm({
         </p>
       )}
 
+      {packageAlreadyPaid && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-950 dark:text-amber-100">
+          <p className="font-medium">Este pacote já está quitado</p>
+          <p className="mt-1 text-xs opacity-90">
+            {packageBalance.paidLabel
+              ? `Já existe lançamento de ${packageBalance.paidLabel}.`
+              : "Já existe receita para este tratamento."}{" "}
+            Não lance de novo — isso duplicaria na prestação. Para mudar a data
+            (ex.: 24/08) ou o valor, use{" "}
+            <strong>Corrigir</strong> na receita da lista ao lado.
+          </p>
+          {existingTreatmentRevenue && onEditExisting && (
+            <Button
+              type="button"
+              size="sm"
+              className="mt-2"
+              onClick={() => onEditExisting(existingTreatmentRevenue)}
+            >
+              Corrigir receita existente
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="treatment_id">Tratamento</Label>
         <select
@@ -795,13 +910,21 @@ function RevenueForm({
               </option>
             ))}
           </select>
-          {isPackage && filteredInstallments.length === 0 && canPayFullPackage && (
+          {isPackage &&
+            filteredInstallments.length === 0 &&
+            canPayFullPackage &&
+            installmentId !== FULL_PACKAGE && (
             <p className="text-xs text-amber-700 dark:text-amber-400">
-              Não há parcelas listadas. Escolha “À vista — pacote completo” para
+              Não há parcelas em aberto. Escolha “À vista — pacote completo” para
               lançar o PIX de {formatBRL(packageBalance.amount)} de uma vez.
             </p>
           )}
-          {installmentId === FULL_PACKAGE && (
+          {packageAlreadyPaid && (
+            <p className="text-xs text-muted-foreground">
+              Não há parcelas em aberto porque o pacote já foi pago.
+            </p>
+          )}
+          {installmentId === FULL_PACKAGE && canPayFullPackage && (
             <p className="text-xs text-muted-foreground">
               Um único lançamento na prestação; baixa todas as parcelas em
               aberto deste pacote.
@@ -865,7 +988,9 @@ function RevenueForm({
             }}
           />
           <p className="text-xs text-muted-foreground">
-            Crédito: +{creditDays} dias (prestação de contas).
+            {cardApplies
+              ? `Crédito: +${creditDays} dias (prestação de contas).`
+              : "PIX/dinheiro: recebimento na mesma data do pagamento."}
           </p>
         </div>
       </div>
@@ -1016,7 +1141,10 @@ function RevenueForm({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={pending || gross <= 0}>
+        <Button
+          type="submit"
+          disabled={pending || gross <= 0 || packageAlreadyPaid}
+        >
           {pending
             ? "Salvando…"
             : isEdit

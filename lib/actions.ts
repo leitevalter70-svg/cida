@@ -495,6 +495,36 @@ export async function createRevenue(
 
       let pending = (existing ?? []).filter((i) => i.status !== "paga")
 
+      const { data: existingRevenues } = await supabase
+        .from("revenues")
+        .select("id, gross_amount, revenue_date, description")
+        .eq("treatment_id", treatmentIdRaw)
+        .eq("user_id", userId)
+        .order("revenue_date", { ascending: false })
+
+      const paidAmount = (existingRevenues ?? []).reduce(
+        (s, r) => s + Number(r.gross_amount),
+        0,
+      )
+      const packageTotal = Number(treatment.total_amount) || 0
+
+      if (
+        pending.length === 0 &&
+        ((existing ?? []).length > 0 ||
+          (packageTotal > 0 && paidAmount >= packageTotal - 0.009))
+      ) {
+        const last = existingRevenues?.[0]
+        const when = last?.revenue_date
+          ? ` em ${last.revenue_date.split("-").reverse().join("/")}`
+          : ""
+        return {
+          ok: false,
+          error: last
+            ? `Este pacote já está quitado (${Number(last.gross_amount).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}${when}). Use Corrigir na receita existente para alterar data ou valor.`
+            : "Este pacote já está quitado. Use Corrigir na receita existente para alterar data ou valor.",
+        }
+      }
+
       if (pending.length === 0 && (existing ?? []).length === 0) {
         const total = Number(treatment.total_amount) || 0
         if (total <= 0) {
