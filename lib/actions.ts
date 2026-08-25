@@ -447,129 +447,170 @@ export async function createTreatment(formData: FormData) {
   return { id: treatment.id as string, patientId }
 }
 
-export async function createRevenue(formData: FormData) {
-  const { supabase, userId } = await getUserId()
+export async function createRevenue(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { supabase, userId } = await getUserId()
 
-  const payFullPackage = formData.get("pay_full_package") === "true"
-  const treatmentId = (formData.get("treatment_id") as string) || ""
-  let pendingInstallmentIds: string[] = []
+    const treatmentIdRaw = String(formData.get("treatment_id") || "").trim()
+    const installmentRaw = String(formData.get("installment_id") || "").trim()
+    const payFullPackage =
+      formData.get("pay_full_package") === "true" ||
+      installmentRaw === "__full__"
 
-  if (payFullPackage && treatmentId) {
-    const { data: treatment, error: tErr } = await supabase
-      .from("treatments")
-      .select(
-        "id, kind, total_amount, protocol_name, started_at, installment_count",
-      )
-      .eq("id", treatmentId)
-      .eq("user_id", userId)
-      .single()
+    let pendingInstallmentIds: string[] = []
+    const overrides: RevenuePayloadOverrides = {}
 
-    if (tErr || !treatment) {
-      throw new Error(tErr?.message || "Tratamento não encontrado")
-    }
-    if (treatment.kind !== "pacote") {
-      throw new Error(
-        "Pagamento à vista do pacote só vale para tratamentos em pacote.",
-      )
-    }
-
-    const { data: existing } = await supabase
-      .from("installments")
-      .select("id, amount, status, sequence_number")
-      .eq("treatment_id", treatmentId)
-      .eq("user_id", userId)
-      .order("sequence_number", { ascending: true })
-
-    let pending = (existing ?? []).filter((i) => i.status !== "paga")
-
-    if (pending.length === 0 && (existing ?? []).length === 0) {
-      const total = Number(treatment.total_amount) || 0
-      if (total <= 0) {
-        throw new Error(
-          "Pacote sem valor e sem parcelas. Ajuste o valor do tratamento antes de lançar.",
+    if (payFullPackage && treatmentIdRaw) {
+      const { data: treatment, error: tErr } = await supabase
+        .from("treatments")
+        .select(
+          "id, kind, total_amount, protocol_name, started_at, installment_count",
         )
-      }
-      const startedAt =
-        treatment.started_at || new Date().toISOString().slice(0, 10)
-      const { data: created, error: cErr } = await supabase
-        .from("installments")
-        .insert({
-          user_id: userId,
-          treatment_id: treatmentId,
-          sequence_number: 1,
-          amount: total,
-          due_date: weeklyDueDate(startedAt, 1),
-          status: "pendente",
-        })
-        .select("id, amount, status, sequence_number")
+        .eq("id", treatmentIdRaw)
+        .eq("user_id", userId)
         .single()
-      if (cErr || !created) {
-        throw new Error(
-          cErr?.message || "Não foi possível criar a parcela à vista.",
-        )
+
+      if (tErr || !treatment) {
+        return {
+          ok: false,
+          error: tErr?.message || "Tratamento não encontrado",
+        }
       }
-      pending = [created]
+      if (treatment.kind !== "pacote") {
+        return {
+          ok: false,
+          error:
+            "Pagamento à vista do pacote só vale para tratamentos em pacote.",
+        }
+      }
+
+      const { data: existing } = await supabase
+        .from("installments")
+        .select("id, amount, status, sequence_number")
+        .eq("treatment_id", treatmentIdRaw)
+        .eq("user_id", userId)
+        .order("sequence_number", { ascending: true })
+
+      let pending = (existing ?? []).filter((i) => i.status !== "paga")
+
+      if (pending.length === 0 && (existing ?? []).length === 0) {
+        const total = Number(treatment.total_amount) || 0
+        if (total <= 0) {
+          return {
+            ok: false,
+            error:
+              "Pacote sem valor e sem parcelas. Ajuste o valor do tratamento antes de lançar.",
+          }
+        }
+        const startedAt =
+          treatment.started_at || new Date().toISOString().slice(0, 10)
+        const { data: created, error: cErr } = await supabase
+          .from("installments")
+          .insert({
+            user_id: userId,
+            treatment_id: treatmentIdRaw,
+            sequence_number: 1,
+            amount: total,
+            due_date: weeklyDueDate(startedAt, 1),
+            status: "pendente",
+          })
+          .select("id, amount, status, sequence_number")
+          .single()
+        if (cErr || !created) {
+          return {
+            ok: false,
+            error:
+              cErr?.message || "Não foi possível criar a parcela à vista.",
+          }
+        }
+        pending = [created]
+      }
+
+      if (pending.length === 0) {
+        return {
+          ok: false,
+          error:
+            "Todas as parcelas deste pacote já estão pagas. Corrija a receita existente se precisar.",
+        }
+      }
+
+      const remaining = pending.reduce((s, i) => s + Number(i.amount), 0)
+      const grossFromForm = Number(formData.get("gross_amount") || 0)
+      overrides.treatment_id = treatmentIdRaw
+      overrides.installment_id = pending[0].id
+      overrides.session_id = null
+      if (!grossFromForm || grossFromForm <= 0) {
+        overrides.gross_amount = remaining
+      }
+      const desc = String(formData.get("description") || "").trim()
+      if (!desc) {
+        overrides.description =
+          pending.length === 1
+            ? `Parcela única — ${treatment.protocol_name}`
+            : `Pacote à vista (${pending.length} parcelas) — ${treatment.protocol_name}`
+      }
+      pendingInstallmentIds = pending.map((i) => i.id)
+    } else if (installmentRaw === "__full__") {
+      return {
+        ok: false,
+        error: "Selecione o tratamento do pacote para pagar à vista.",
+      }
     }
 
-    if (pending.length === 0) {
-      throw new Error(
-        "Todas as parcelas deste pacote já estão pagas. Corrija a receita existente se precisar.",
-      )
+    const payload = await buildRevenuePayload(
+      formData,
+      userId,
+      supabase,
+      overrides,
+    )
+    await assertRevenueLinksAvailable(supabase, userId, payload)
+
+    const { error } = await supabase.from("revenues").insert({
+      user_id: userId,
+      ...payload,
+    })
+
+    if (error) {
+      return { ok: false, error: friendlyRevenueLinkError(error.message) }
     }
 
-    const remaining = pending.reduce((s, i) => s + Number(i.amount), 0)
-    const grossFromForm = Number(formData.get("gross_amount") || 0)
-    if (!grossFromForm || grossFromForm <= 0) {
-      formData.set("gross_amount", String(remaining))
-    }
-    if (!String(formData.get("description") || "").trim()) {
-      formData.set(
-        "description",
-        pending.length === 1
-          ? `Parcela única — ${treatment.protocol_name}`
-          : `Pacote à vista (${pending.length} parcelas) — ${treatment.protocol_name}`,
-      )
+    const installmentIdsToPay =
+      pendingInstallmentIds.length > 0
+        ? pendingInstallmentIds
+        : payload.installment_id
+          ? [payload.installment_id]
+          : []
+
+    if (installmentIdsToPay.length > 0) {
+      await supabase
+        .from("installments")
+        .update({
+          status: "paga",
+          paid_at: new Date().toISOString().slice(0, 10),
+        })
+        .in("id", installmentIdsToPay)
+        .eq("user_id", userId)
     }
 
-    formData.set("installment_id", pending[0].id)
-    formData.set("session_id", "")
-    pendingInstallmentIds = pending.map((i) => i.id)
+    const patientId = payload.patient_id || ""
+    revalidatePath("/", "layout")
+    revalidatePath("/receitas")
+    revalidatePath("/dashboard")
+    revalidatePath("/tratamentos")
+    revalidatePath("/prestacao")
+    if (patientId) revalidatePath(`/pacientes/${patientId}`)
+    return { ok: true }
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Não foi possível salvar a receita.",
+    }
   }
-
-  const payload = await buildRevenuePayload(formData, userId, supabase)
-  await assertRevenueLinksAvailable(supabase, userId, payload)
-
-  const { error } = await supabase.from("revenues").insert({
-    user_id: userId,
-    ...payload,
-  })
-
-  if (error) {
-    throw new Error(friendlyRevenueLinkError(error.message))
-  }
-
-  const installmentIdsToPay =
-    pendingInstallmentIds.length > 0
-      ? pendingInstallmentIds
-      : payload.installment_id
-        ? [payload.installment_id]
-        : []
-
-  if (installmentIdsToPay.length > 0) {
-    await supabase
-      .from("installments")
-      .update({ status: "paga", paid_at: new Date().toISOString().slice(0, 10) })
-      .in("id", installmentIdsToPay)
-      .eq("user_id", userId)
-  }
-
-  const patientId = payload.patient_id || ""
-  revalidatePath("/", "layout")
-  revalidatePath("/receitas")
-  revalidatePath("/dashboard")
-  revalidatePath("/tratamentos")
-  revalidatePath("/prestacao")
-  if (patientId) revalidatePath(`/pacientes/${patientId}`)
 }
 
 export async function updateRevenue(revenueId: string, formData: FormData) {
@@ -665,18 +706,37 @@ export async function deleteRevenue(revenueId: string) {
   if (current.patient_id) revalidatePath(`/pacientes/${current.patient_id}`)
 }
 
+type RevenuePayloadOverrides = {
+  treatment_id?: string | null
+  installment_id?: string | null
+  session_id?: string | null
+  gross_amount?: number
+  description?: string | null
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function asUuidOrNull(value: string | null | undefined) {
+  const v = value?.trim() || ""
+  if (!v || v === "__full__") return null
+  return UUID_RE.test(v) ? v : null
+}
+
 async function buildRevenuePayload(
   formData: FormData,
   userId: string,
   supabase: Awaited<ReturnType<typeof createClient>>,
+  overrides: RevenuePayloadOverrides = {},
 ) {
   const { data: settings } = await supabase
     .from("financial_settings")
     .select("*")
     .eq("user_id", userId)
-    .single()
+    .maybeSingle()
 
-  const grossAmount = Number(formData.get("gross_amount") || 0)
+  const grossAmount =
+    overrides.gross_amount ?? Number(formData.get("gross_amount") || 0)
   const paymentMethod = (formData.get("payment_method") as PaymentMethod) || "pix"
   const usesCard = isCardPayment(paymentMethod)
   const clinicPercent = Number(
@@ -718,9 +778,18 @@ async function buildRevenuePayload(
       ? String(settledFromForm)
       : computeSettledAt(revenueDate, paymentMethod, creditDays)
 
-  const treatmentId = (formData.get("treatment_id") as string) || null
-  let installmentId = (formData.get("installment_id") as string) || null
-  let sessionId = (formData.get("session_id") as string) || null
+  const treatmentId =
+    overrides.treatment_id !== undefined
+      ? overrides.treatment_id
+      : asUuidOrNull(String(formData.get("treatment_id") || ""))
+  let installmentId =
+    overrides.installment_id !== undefined
+      ? overrides.installment_id
+      : asUuidOrNull(String(formData.get("installment_id") || ""))
+  let sessionId =
+    overrides.session_id !== undefined
+      ? overrides.session_id
+      : asUuidOrNull(String(formData.get("session_id") || ""))
 
   // Pacote e avulso não misturam: um lançamento ou baixa parcela ou paga sessão.
   if (installmentId && sessionId) {
@@ -739,7 +808,7 @@ async function buildRevenuePayload(
       sessionId = null
       if (!installmentId) {
         throw new Error(
-          "No pacote, vincule uma parcela. Isso evita duplicar o valor total na prestação de contas.",
+          "No pacote, vincule uma parcela ou use “À vista — pacote completo”.",
         )
       }
     }
@@ -753,6 +822,11 @@ async function buildRevenuePayload(
     }
   }
 
+  const description =
+    overrides.description !== undefined
+      ? overrides.description
+      : (formData.get("description") as string) || null
+
   return {
     patient_id: (formData.get("patient_id") as string) || null,
     treatment_id: treatmentId,
@@ -760,7 +834,7 @@ async function buildRevenuePayload(
     session_id: sessionId,
     revenue_date: revenueDate,
     settled_at: settledAt,
-    description: (formData.get("description") as string) || null,
+    description,
     gross_amount: grossAmount,
     payment_method: paymentMethod,
     clinic_percent: clinicPercent,

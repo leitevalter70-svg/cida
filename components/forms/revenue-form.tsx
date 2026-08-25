@@ -684,7 +684,11 @@ function RevenueForm({
           await updateRevenue(revenue.id, fd)
           onSaved?.()
         } else {
-          await createRevenue(fd)
+          const result = await createRevenue(fd)
+          if (!result.ok) {
+            setSaveError(result.error)
+            return
+          }
         }
         router.refresh()
         if (!revenue) {
@@ -697,8 +701,12 @@ function RevenueForm({
           setSettledAt(computeSettledAt(todayISO(), "pix", creditDays))
         }
       } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Não foi possível salvar a receita."
         setSaveError(
-          err instanceof Error ? err.message : "Não foi possível salvar a receita.",
+          /Server Components|digest|omitted in production/i.test(message)
+            ? "Não foi possível salvar a receita. Confira parcela/à vista, valor e tente de novo."
+            : message,
         )
       }
     })
@@ -769,7 +777,6 @@ function RevenueForm({
           <Label htmlFor="installment_id">Parcela</Label>
           <select
             id="installment_id"
-            name="installment_id"
             className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
             value={installmentId}
             onChange={(e) => onInstallmentChange(e.target.value)}
