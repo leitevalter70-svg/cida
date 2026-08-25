@@ -8,6 +8,7 @@ import { SessionForm } from "@/components/forms/session-form"
 import { PatientRevenuePanel } from "@/components/forms/revenue-form"
 import { DeletePatientButton } from "@/components/forms/delete-patient-button"
 import { TreatmentPlannedSessionsForm } from "@/components/forms/treatment-planned-sessions-form"
+import { DeleteTreatmentButton } from "@/components/forms/treatment-form"
 import { EvolutionChart } from "@/components/evolution-chart"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -559,6 +560,10 @@ export default async function PacienteDetailPage({
                           Relatório clínico
                         </Link>
                       )}
+                      <DeleteTreatmentButton
+                        treatmentId={t.id}
+                        protocolName={t.protocol_name}
+                      />
                     </div>
                   </div>
                   <TreatmentPlannedSessionsForm

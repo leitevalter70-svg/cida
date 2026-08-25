@@ -5,6 +5,7 @@ import { SetupNotice } from "@/components/setup-notice"
 import {
   TreatmentForm,
   CompleteTreatmentButton,
+  DeleteTreatmentButton,
 } from "@/components/forms/treatment-form"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -112,6 +113,10 @@ export default async function TratamentosPage({
                             Ver relatório
                           </Link>
                         )}
+                        <DeleteTreatmentButton
+                          treatmentId={t.id}
+                          protocolName={t.protocol_name}
+                        />
                       </div>
                     </div>
                     {t.kind === "pacote" && installments.length > 0 && (

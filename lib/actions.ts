@@ -225,6 +225,60 @@ export async function updateTreatmentPlannedSessions(
   revalidatePath(`/relatorios/clinico/${treatmentId}`)
 }
 
+export async function deleteTreatment(treatmentId: string) {
+  const { supabase, userId } = await getUserId()
+
+  const { data: treatment, error: findError } = await supabase
+    .from("treatments")
+    .select("id, patient_id, protocol_name")
+    .eq("id", treatmentId)
+    .eq("user_id", userId)
+    .single()
+
+  if (findError || !treatment) {
+    throw new Error(findError?.message || "Tratamento não encontrado")
+  }
+
+  const { data: installments } = await supabase
+    .from("installments")
+    .select("id")
+    .eq("treatment_id", treatmentId)
+    .eq("user_id", userId)
+  const installmentIds = (installments ?? []).map((i) => i.id)
+
+  const { error: revByTreatmentError } = await supabase
+    .from("revenues")
+    .delete()
+    .eq("treatment_id", treatmentId)
+    .eq("user_id", userId)
+  if (revByTreatmentError) throw new Error(revByTreatmentError.message)
+
+  if (installmentIds.length > 0) {
+    const { error: revByInstError } = await supabase
+      .from("revenues")
+      .delete()
+      .in("installment_id", installmentIds)
+      .eq("user_id", userId)
+    if (revByInstError) throw new Error(revByInstError.message)
+  }
+
+  const { error } = await supabase
+    .from("treatments")
+    .delete()
+    .eq("id", treatmentId)
+    .eq("user_id", userId)
+
+  if (error) throw new Error(error.message)
+
+  revalidatePath("/", "layout")
+  revalidatePath("/tratamentos")
+  revalidatePath("/receitas")
+  revalidatePath("/dashboard")
+  revalidatePath("/prestacao")
+  revalidatePath(`/pacientes/${treatment.patient_id}`)
+  revalidatePath(`/relatorios/clinico/${treatmentId}`)
+}
+
 export async function deletePatient(id: string) {
   const { supabase, userId } = await getUserId()
 

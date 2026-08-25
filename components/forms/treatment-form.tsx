@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useTransition } from "react"
-import { createTreatment, completeTreatment } from "@/lib/actions"
+import { createTreatment, completeTreatment, deleteTreatment } from "@/lib/actions"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -182,6 +182,38 @@ export function CompleteTreatmentButton({
       }
     >
       {pending ? "Gerando…" : "Alta + relatório clínico"}
+    </Button>
+  )
+}
+
+export function DeleteTreatmentButton({
+  treatmentId,
+  protocolName,
+}: {
+  treatmentId: string
+  protocolName: string
+}) {
+  const router = useRouter()
+  const [pending, startTransition] = useTransition()
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="destructive"
+      disabled={pending}
+      onClick={() => {
+        const ok = window.confirm(
+          `Excluir permanentemente o tratamento "${protocolName}"?\n\nSerão removidos também parcelas, relatório clínico e receitas ligadas a este tratamento. As sessões da paciente permanecem.`,
+        )
+        if (!ok) return
+        startTransition(async () => {
+          await deleteTreatment(treatmentId)
+          router.refresh()
+        })
+      }}
+    >
+      {pending ? "Excluindo…" : "Excluir"}
     </Button>
   )
 }
