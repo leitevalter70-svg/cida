@@ -386,6 +386,103 @@ export async function createSession(formData: FormData) {
   }
 }
 
+export async function updateSession(formData: FormData) {
+  const { supabase, userId } = await getUserId()
+  const sessionId = String(formData.get("session_id") || "")
+  if (!sessionId) throw new Error("Sessão inválida.")
+
+  const { data: existing, error: loadError } = await supabase
+    .from("sessions")
+    .select("id, patient_id, treatment_id")
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  if (loadError) throw new Error(loadError.message)
+  if (!existing) throw new Error("Sessão não encontrada.")
+
+  const { data: linkedRevenue } = await supabase
+    .from("revenues")
+    .select("id")
+    .eq("session_id", sessionId)
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  const requestedTreatmentId =
+    (formData.get("treatment_id") as string) || null
+  // Sessão já paga: mantém o vínculo de tratamento para não desalinhar a receita.
+  const treatmentId = linkedRevenue
+    ? existing.treatment_id
+    : requestedTreatmentId
+
+  const scaleRaw = formData.get("evolution_scale") as string
+  const deviceIds = formData
+    .getAll("device_ids")
+    .map(String)
+    .filter(Boolean)
+
+  const { error } = await supabase
+    .from("sessions")
+    .update({
+      treatment_id: treatmentId,
+      session_date: String(formData.get("session_date")),
+      daily_complaint: (formData.get("daily_complaint") as string) || null,
+      procedures_done: (formData.get("procedures_done") as string) || null,
+      patient_response: (formData.get("patient_response") as string) || null,
+      evolution_scale: scaleRaw ? Number(scaleRaw) : null,
+      access_route: (formData.get("access_route") as string) || "nao_aplicavel",
+      device_notes: (formData.get("device_notes") as string) || null,
+      next_step: (formData.get("next_step") as string) || null,
+    })
+    .eq("id", sessionId)
+    .eq("user_id", userId)
+
+  if (error) throw new Error(error.message)
+
+  const { data: currentDevices, error: devicesLoadError } = await supabase
+    .from("session_devices")
+    .select("device_id")
+    .eq("session_id", sessionId)
+
+  if (devicesLoadError) throw new Error(devicesLoadError.message)
+
+  const currentIds = new Set(
+    (currentDevices ?? []).map((d) => d.device_id as string),
+  )
+  const nextIds = new Set(deviceIds)
+  const toRemove = [...currentIds].filter((id) => !nextIds.has(id))
+  const toAdd = [...nextIds].filter((id) => !currentIds.has(id))
+
+  if (toRemove.length > 0) {
+    const { error: removeError } = await supabase
+      .from("session_devices")
+      .delete()
+      .eq("session_id", sessionId)
+      .in("device_id", toRemove)
+    if (removeError) throw new Error(removeError.message)
+  }
+
+  if (toAdd.length > 0) {
+    const { error: addError } = await supabase.from("session_devices").insert(
+      toAdd.map((device_id) => ({
+        session_id: sessionId,
+        device_id,
+      })),
+    )
+    if (addError) throw new Error(addError.message)
+  }
+
+  revalidatePath(`/pacientes/${existing.patient_id}`)
+  revalidatePath("/dashboard")
+  if (existing.treatment_id) {
+    revalidatePath(`/relatorios/clinico/${existing.treatment_id}`)
+  }
+  return {
+    id: sessionId,
+    patientId: existing.patient_id as string,
+  }
+}
+
 export async function createTreatment(formData: FormData) {
   const { supabase, userId } = await getUserId()
   const kind = (formData.get("kind") as TreatmentKind) || "pacote"

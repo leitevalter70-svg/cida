@@ -8,24 +8,12 @@ import {
   DownloadClinicalPdfButton,
   DownloadClinicalWordButton,
 } from "@/components/clinical-pdf"
-import {
-  type ClinicalPdfData,
-} from "@/lib/clinical/report-export"
+import { buildClinicalPdfData } from "@/lib/clinical/build-clinical-pdf-data"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { PhysioSymbol } from "@/components/physio-symbol"
 import { formatData } from "@/lib/format"
 import { EvolutionChart } from "@/components/evolution-chart"
-import {
-  complaintLabel,
-  isGenericOutroComplaint,
-  resolveDisplayComplaint,
-} from "@/lib/clinical/complaints"
-import { adherencePercent } from "@/lib/clinical/chance"
-import {
-  describePatientComplaint,
-  mergeAnamnese,
-} from "@/lib/clinical/urogineco"
 import {
   formatCrefitoLine,
   resolveCredentials,
@@ -43,14 +31,6 @@ const STATUS_LABELS: Record<string, string> = {
   em_tratamento: "Em tratamento",
   alta: "Alta",
   inativo: "Inativo",
-}
-
-const ACCESS_LABELS: Record<string, string> = {
-  sonda_vaginal: "Sonda vaginal",
-  sonda_anal: "Sonda anal",
-  eletrodo_superficie: "Eletrodo de superfície",
-  outro: "Outro",
-  nao_aplicavel: "Não aplicável",
 }
 
 export default async function RelatorioClinicoPage({
@@ -78,7 +58,7 @@ export default async function RelatorioClinicoPage({
 
   if (!treatment) notFound()
 
-  let { data: report } = await supabase
+  const { data: report } = await supabase
     .from("clinical_reports")
     .select("*")
     .eq("treatment_id", treatmentId)
@@ -135,151 +115,50 @@ export default async function RelatorioClinicoPage({
         escala: Number(s.evolution_scale),
       })) ?? []
 
-  const anamneseComplaint = assessment?.anamnese
-    ? describePatientComplaint(
-        {
-          full_name: patient.full_name,
-          age_years: patient.age_years,
-          sex: patient.sex,
-          complaint_focus: patient.complaint_focus,
-          notes: patient.notes,
-        },
-        mergeAnamnese(assessment.anamnese),
-      )
-    : null
-
-  const sessionComplaintFallbacks =
-    sessions
-      ?.map((s) => s.daily_complaint as string | null)
-      .filter(
-        (c): c is string =>
-          !!c?.trim() && !isGenericOutroComplaint(c),
-      ) ?? []
-
-  const complaint = resolveDisplayComplaint(
-    report.complaint_focus,
-    patient.complaint_focus,
-    anamneseComplaint &&
-      anamneseComplaint !== "queixa a esclarecer na evolução clínica"
-      ? anamneseComplaint
-      : null,
-    patient.notes,
-    ...sessionComplaintFallbacks,
-    treatment.protocol_name,
-  )
-
-  const firstSessionDate = sessions?.[0]?.session_date ?? null
-  const lastSessionDate =
-    sessions && sessions.length > 0
-      ? sessions[sessions.length - 1].session_date
-      : null
-  const periodStartRaw = firstSessionDate || report.treatment_period_start
-  const periodEndRaw = lastSessionDate || report.treatment_period_end
-
-  const sessionsDone = sessions?.length ?? 0
-  const sessionsPlanned = Number(
-    report.sessions_planned ?? treatment.planned_sessions ?? 0,
-  )
-  const adherence = adherencePercent(sessionsDone, sessionsPlanned)
-
-  const scales =
-    sessions
-      ?.map((s) =>
-        s.evolution_scale != null ? Number(s.evolution_scale) : null,
-      )
-      .filter((s): s is number => s != null) ?? []
-  const scaleStart = scales[0] ?? null
-  const scaleEnd = scales.length ? scales[scales.length - 1] : null
-
-  const deviceCounts = new Map<string, number>()
-  sessions?.forEach((s) => {
-    const devices = s.session_devices as
-      | { device_catalog: { name: string } | null }[]
-      | null
-    devices?.forEach((d) => {
-      const name = d.device_catalog?.name
-      if (name) deviceCounts.set(name, (deviceCounts.get(name) || 0) + 1)
-    })
-  })
-  const devicesSummary =
-    deviceCounts.size === 0
-      ? report.devices_summary || "Sem aparelhos eletrônicos registrados"
-      : Array.from(deviceCounts.entries())
-          .map(
-            ([name, count]) =>
-              `${name} em ${count} de ${sessionsDone} sessões`,
-          )
-          .join("; ")
-
-  const chanceSummaryText =
-    report.chance_summary?.replace(
-      /Adesão neste (tratamento|percurso): [\d.,]+%/,
-      `Adesão neste tratamento: ${adherence}%`,
-    ) ||
-    `Adesão neste tratamento: ${adherence}%.`
-
   const credentials = resolveCredentials(defaults)
 
-  const pdfSessions =
-    sessions?.map((s) => {
-      const deviceNames =
-        (s.session_devices as { device_catalog: { name: string } }[])
-          ?.map((d) => d.device_catalog?.name)
-          .filter(Boolean) ?? []
-      const access =
-        s.access_route && s.access_route !== "nao_aplicavel"
-          ? ACCESS_LABELS[s.access_route] || s.access_route
-          : null
-      return {
-        date: formatData(s.session_date),
-        scale:
-          s.evolution_scale != null ? Number(s.evolution_scale) : null,
-        complaint: (() => {
-          const raw =
-            complaintLabel(s.daily_complaint) ||
-            (s.daily_complaint as string | null)
-          if (!raw || isGenericOutroComplaint(raw)) return null
-          return raw
-        })(),
-        procedures: s.procedures_done as string | null,
-        devices: deviceNames as string[],
-        accessRoute: access,
-        deviceNotes: s.device_notes as string | null,
-        patientResponse: s.patient_response as string | null,
-        nextStep: s.next_step as string | null,
-      }
-    }) ?? []
+  const pdfData = buildClinicalPdfData({
+    patient,
+    protocolName: treatment.protocol_name as string,
+    plannedSessions: Number(treatment.planned_sessions ?? 0),
+    report: {
+      synthesis_text: report.synthesis_text,
+      maintenance_guidance: report.maintenance_guidance,
+      complaint_focus: report.complaint_focus,
+      treatment_period_start: report.treatment_period_start,
+      treatment_period_end: report.treatment_period_end,
+      sessions_planned: report.sessions_planned,
+      chance_summary: report.chance_summary,
+      devices_summary: report.devices_summary,
+    },
+    sessions: (sessions ?? []).map((s) => ({
+      session_date: s.session_date as string,
+      evolution_scale:
+        s.evolution_scale == null ? null : Number(s.evolution_scale),
+      daily_complaint: (s.daily_complaint as string | null) ?? null,
+      procedures_done: (s.procedures_done as string | null) ?? null,
+      access_route: (s.access_route as string | null) ?? null,
+      device_notes: (s.device_notes as string | null) ?? null,
+      patient_response: (s.patient_response as string | null) ?? null,
+      next_step: (s.next_step as string | null) ?? null,
+      session_devices: s.session_devices as
+        | { device_catalog: { name: string } | null }[]
+        | null,
+    })),
+    anamnese: assessment?.anamnese ?? null,
+    reportDefaults: defaults,
+    credentials,
+  })
 
-  const pdfData: ClinicalPdfData = {
-    patientName: patient.full_name,
-    age: patient.age_years,
-    sex: patient.sex ? SEX_LABELS[patient.sex] || patient.sex : null,
-    phone: patient.phone,
-    email: patient.email,
-    patientNotes: patient.notes,
-    patientStatus: patient.status
-      ? STATUS_LABELS[patient.status] || patient.status
-      : null,
-    protocolName: treatment.protocol_name,
-    complaint,
-    periodStart: periodStartRaw ? formatData(periodStartRaw) : null,
-    periodEnd: periodEndRaw ? formatData(periodEndRaw) : null,
-    sessionsPlanned,
-    sessionsDone,
-    adherence,
-    scaleStart,
-    scaleEnd,
-    devicesSummary,
-    chanceSummary: chanceSummaryText,
-    synthesis: report.synthesis_text,
-    maintenance: report.maintenance_guidance,
-    disclaimer:
-      defaults?.disclaimer_text ||
-      "Estimativa populacional; não é garantia de cura.",
-    professionalName: credentials.professionalName,
-    crefitoLine: formatCrefitoLine(credentials.crefito),
-    sessions: pdfSessions,
-  }
+  const pdfSessions = pdfData.sessions
+  const adherence = pdfData.adherence
+  const sessionsDone = pdfData.sessionsDone
+  const sessionsPlanned = pdfData.sessionsPlanned
+  const scaleStart = pdfData.scaleStart
+  const scaleEnd = pdfData.scaleEnd
+  const devicesSummary = pdfData.devicesSummary
+  const chanceSummaryText = pdfData.chanceSummary
+  const complaint = pdfData.complaint
 
   return (
     <div className="flex flex-col gap-6">
@@ -356,6 +235,32 @@ export default async function RelatorioClinicoPage({
                 {complaint}
               </p>
             )}
+            {(pdfData.periodStart || pdfData.periodEnd) && (
+              <p>
+                <span className="text-muted-foreground">Período:</span>{" "}
+                {pdfData.periodStart || "—"} → {pdfData.periodEnd || "—"}
+              </p>
+            )}
+            <p>
+              <span className="text-muted-foreground">Sessões:</span>{" "}
+              {sessionsDone} de {sessionsPlanned || "—"}
+              {adherence != null ? ` · adesão ${adherence}%` : ""}
+            </p>
+            {(scaleStart != null || scaleEnd != null) && (
+              <p>
+                <span className="text-muted-foreground">Escala:</span>{" "}
+                {scaleStart ?? "—"} → {scaleEnd ?? "—"}
+              </p>
+            )}
+            {devicesSummary && (
+              <p>
+                <span className="text-muted-foreground">Aparelhos:</span>{" "}
+                {devicesSummary}
+              </p>
+            )}
+            {chanceSummaryText && (
+              <p className="text-muted-foreground">{chanceSummaryText}</p>
+            )}
             {patient.notes && (
               <p>
                 <span className="text-muted-foreground">Observações:</span>{" "}
@@ -367,35 +272,20 @@ export default async function RelatorioClinicoPage({
 
         <Card className="border-border/80 shadow-none">
           <CardHeader>
-            <CardTitle className="text-base">Resumo do tratamento</CardTitle>
+            <CardTitle className="text-base">Evolução da escala</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p>
-              Período:{" "}
-              {periodStartRaw ? formatData(periodStartRaw) : "—"} a{" "}
-              {periodEndRaw ? formatData(periodEndRaw) : "—"}
-            </p>
-            <p>
-              Sessões: {sessionsDone}/{sessionsPlanned} · Adesão {adherence}%
-            </p>
-            <p>
-              Escala: {scaleStart ?? "—"} → {scaleEnd ?? "—"}
-            </p>
-            <p className="text-muted-foreground">{devicesSummary}</p>
-            <p className="rounded-lg bg-secondary/50 p-3 text-xs">
-              {chanceSummaryText}
-            </p>
+          <CardContent>
             <EvolutionChart data={chartData} />
           </CardContent>
         </Card>
       </div>
 
       <Card className="border-border/80 shadow-none">
-        <CardHeader className="pb-2">
+        <CardHeader>
           <CardTitle className="text-base">
-            Histórico das sessões
+            Sessões registradas{" "}
             {pdfSessions.length > 0 && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
+              <span className="font-normal text-muted-foreground">
                 ({pdfSessions.length}{" "}
                 {pdfSessions.length === 1 ? "sessão" : "sessões"})
               </span>

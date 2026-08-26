@@ -5,11 +5,14 @@ import { SetupNotice } from "@/components/setup-notice"
 import { PatientForm } from "@/components/forms/patient-form"
 import { UroginecoAssessmentForm } from "@/components/forms/urogineco-assessment-form"
 import { SessionForm } from "@/components/forms/session-form"
+import { SessionHistoryPanel } from "@/components/forms/session-history-panel"
 import { PatientRevenuePanel } from "@/components/forms/revenue-form"
 import { DeletePatientButton } from "@/components/forms/delete-patient-button"
 import { TreatmentPlannedSessionsForm } from "@/components/forms/treatment-planned-sessions-form"
 import { DeleteTreatmentButton } from "@/components/forms/treatment-form"
 import { EvolutionChart } from "@/components/evolution-chart"
+import { PatientDetailTabs } from "@/components/patient-detail-tabs"
+import { PatientReportsPanel } from "@/components/patient-reports-panel"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
@@ -19,10 +22,12 @@ import {
   adherencePercent,
   chanceSummary,
 } from "@/lib/clinical/chance"
+import { buildClinicalPdfData } from "@/lib/clinical/build-clinical-pdf-data"
 import {
   complaintLabel,
   resolveComplaintOptions,
 } from "@/lib/clinical/complaints"
+import { paymentMethodLabel } from "@/lib/finance/split"
 import { resolveCredentials, formatCrefitoLine } from "@/lib/professional"
 import { cn } from "@/lib/utils"
 import { notFound } from "next/navigation"
@@ -79,7 +84,7 @@ export default async function PacienteDetailPage({
   ] = await Promise.all([
     supabase
       .from("sessions")
-      .select("*, session_devices(device_catalog(name))")
+      .select("*, session_devices(device_id, device_catalog(name))")
       .eq("patient_id", id)
       .order("session_date", { ascending: true }),
     supabase
@@ -89,8 +94,7 @@ export default async function PacienteDetailPage({
       .order("created_at", { ascending: false }),
     supabase
       .from("device_catalog")
-      .select("id, name")
-      .eq("is_active", true)
+      .select("id, name, is_active")
       .order("sort_order"),
     supabase
       .from("clinical_chance_bands")
@@ -99,7 +103,7 @@ export default async function PacienteDetailPage({
     supabase.from("financial_settings").select("*").maybeSingle(),
     supabase
       .from("clinical_reports")
-      .select("id, treatment_id")
+      .select("*")
       .eq("patient_id", id),
     supabase
       .from("revenues")
@@ -190,7 +194,176 @@ export default async function PacienteDetailPage({
     paid: paidSessionIds.has(s.id as string),
   }))
 
+  const historySessions = [...(sessions ?? [])].reverse().map((s) => {
+    const sessionDevices =
+      (s.session_devices as {
+        device_id: string
+        device_catalog: { name: string } | null
+      }[]) ?? []
+    return {
+      id: s.id as string,
+      session_date: s.session_date as string,
+      treatment_id: (s.treatment_id as string | null) ?? null,
+      daily_complaint: (s.daily_complaint as string | null) ?? null,
+      procedures_done: (s.procedures_done as string | null) ?? null,
+      patient_response: (s.patient_response as string | null) ?? null,
+      evolution_scale:
+        s.evolution_scale == null ? null : Number(s.evolution_scale),
+      access_route: (s.access_route as string | null) ?? null,
+      device_notes: (s.device_notes as string | null) ?? null,
+      next_step: (s.next_step as string | null) ?? null,
+      device_ids: sessionDevices.map((d) => d.device_id).filter(Boolean),
+      device_names: sessionDevices
+        .map((d) => d.device_catalog?.name)
+        .filter((n): n is string => Boolean(n)),
+      paid: paidSessionIds.has(s.id as string),
+    }
+  })
+
   const credentials = resolveCredentials(reportDefaults)
+  const defaultTab = highlightRevenue ? "financeiro" : "dados"
+
+  // Aparelhos ativos + qualquer aparelho já usado em sessões (mesmo inativo),
+  // para edição não perder vínculos gravados.
+  const usedDeviceIds = new Set(
+    historySessions.flatMap((s) => s.device_ids),
+  )
+  const activeDevices = (devices ?? [])
+    .filter((d) => d.is_active)
+    .map((d) => ({ id: d.id as string, name: d.name as string }))
+  const deviceOptionsForEdit = (devices ?? [])
+    .filter((d) => d.is_active || usedDeviceIds.has(d.id as string))
+    .map((d) => ({ id: d.id as string, name: d.name as string }))
+
+  const sessionRowsForPdf = (sessions ?? []).map((s) => ({
+    id: s.id as string,
+    treatment_id: (s.treatment_id as string | null) ?? null,
+    session_date: s.session_date as string,
+    evolution_scale:
+      s.evolution_scale == null ? null : Number(s.evolution_scale),
+    daily_complaint: (s.daily_complaint as string | null) ?? null,
+    procedures_done: (s.procedures_done as string | null) ?? null,
+    access_route: (s.access_route as string | null) ?? null,
+    device_notes: (s.device_notes as string | null) ?? null,
+    patient_response: (s.patient_response as string | null) ?? null,
+    next_step: (s.next_step as string | null) ?? null,
+    session_devices: s.session_devices as
+      | { device_catalog: { name: string } | null }[]
+      | null,
+  }))
+
+  const clinicalReportItems = (reports ?? [])
+    .map((report) => {
+      const treatment = (treatments ?? []).find(
+        (t) => t.id === report.treatment_id,
+      )
+      if (!treatment) return null
+      const treatmentSessions = sessionRowsForPdf.filter(
+        (s) =>
+          s.treatment_id === treatment.id || s.treatment_id == null,
+      )
+      return {
+        treatmentId: treatment.id as string,
+        protocolName: treatment.protocol_name as string,
+        treatmentStatus: treatment.status as string,
+        finalizedAt: report.finalized_at
+          ? formatData(String(report.finalized_at).slice(0, 10))
+          : null,
+        updatedAt: report.updated_at
+          ? formatData(String(report.updated_at).slice(0, 10))
+          : null,
+        pdfData: buildClinicalPdfData({
+          patient: {
+            full_name: patient.full_name,
+            age_years: patient.age_years,
+            sex: patient.sex,
+            phone: patient.phone,
+            email: patient.email,
+            notes: patient.notes,
+            status: patient.status,
+            complaint_focus: patient.complaint_focus,
+          },
+          protocolName: treatment.protocol_name as string,
+          plannedSessions: Number(treatment.planned_sessions ?? 0),
+          report: {
+            synthesis_text: report.synthesis_text,
+            maintenance_guidance: report.maintenance_guidance,
+            complaint_focus: report.complaint_focus,
+            treatment_period_start: report.treatment_period_start,
+            treatment_period_end: report.treatment_period_end,
+            sessions_planned: report.sessions_planned,
+            chance_summary: report.chance_summary,
+            devices_summary: report.devices_summary,
+          },
+          sessions: treatmentSessions,
+          anamnese: urogineco?.anamnese ?? null,
+          reportDefaults,
+          credentials,
+        }),
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => item != null)
+
+  const physioHasContent = Boolean(
+    urogineco &&
+      [
+        urogineco.report_opening_text,
+        urogineco.report_anamnese_text,
+        urogineco.report_exam_text,
+        urogineco.report_proposal_text,
+        urogineco.report_guidance_text,
+      ].some((t) => String(t ?? "").trim().length > 0),
+  )
+
+  const physioReport = urogineco
+    ? {
+        hasContent: physioHasContent,
+        assessmentDate: urogineco.assessment_date
+          ? formatData(urogineco.assessment_date)
+          : null,
+        pdfData: {
+          patientName: patient.full_name as string,
+          reportDate: urogineco.assessment_date ?? null,
+          opening: (urogineco.report_opening_text as string) ?? "",
+          anamneseText: (urogineco.report_anamnese_text as string) ?? "",
+          examText: (urogineco.report_exam_text as string) ?? "",
+          proposalText: (urogineco.report_proposal_text as string) ?? "",
+          guidanceText: (urogineco.report_guidance_text as string) ?? "",
+          professionalName: credentials.professionalName,
+          crefitoLine: formatCrefitoLine(credentials.crefito),
+        },
+      }
+    : null
+
+  const receiptItems = (revenues ?? []).map((r) => {
+    const treatment = (treatments ?? []).find((t) => t.id === r.treatment_id)
+    const label =
+      (r.description as string | null)?.trim() ||
+      treatment?.protocol_name ||
+      "Receita"
+    return {
+      id: r.id as string,
+      label,
+      meta: [
+        `Pagamento ${formatData(r.revenue_date)}`,
+        `Recebimento ${formatData(r.settled_at || r.revenue_date)}`,
+        paymentMethodLabel(r.payment_method as PaymentMethod),
+      ].join(" · "),
+      amountLabel: formatBRL(Number(r.gross_amount)),
+      receiptData: {
+        patientName: patient.full_name as string,
+        revenueDate: formatData(r.revenue_date),
+        settledAt: formatData(r.settled_at || r.revenue_date),
+        paymentMethodLabel: paymentMethodLabel(
+          r.payment_method as PaymentMethod,
+        ),
+        description: (r.description as string | null) ?? null,
+        grossAmountLabel: formatBRL(Number(r.gross_amount)),
+        professionalName: credentials.professionalName,
+        crefito: credentials.crefito,
+      },
+    }
+  })
 
   return (
     <div className="flex flex-col gap-6">
@@ -224,362 +397,295 @@ export default async function PacienteDetailPage({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          ["Faturamento", revenueTotals.gross],
-          ["Clínica", revenueTotals.clinic],
-          ["Você", revenueTotals.professional],
-          ["Cartão", revenueTotals.card],
-        ].map(([label, value]) => (
-          <Card key={label as string}>
-            <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{label as string}</p>
-              <p className="text-lg font-bold">{formatBRL(value as number)}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Editar dados do paciente</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PatientForm
-            patient={patient}
-            complaintOptions={complaintOptions}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Avaliação uroginecológica
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <UroginecoAssessmentForm
-            patientId={patient.id}
-            patientName={patient.full_name}
-            patientAge={patient.age_years}
-            patientSex={patient.sex}
-            complaintFocus={patient.complaint_focus}
-            patientNotes={patient.notes}
-            assessmentDate={urogineco?.assessment_date ?? null}
-            initialAnamnese={urogineco?.anamnese}
-            initialExam={urogineco?.physical_exam}
-            initialReport={{
-              openingText: urogineco?.report_opening_text ?? null,
-              anamneseText: urogineco?.report_anamnese_text ?? null,
-              examText: urogineco?.report_exam_text ?? null,
-              proposalText: urogineco?.report_proposal_text ?? null,
-              guidanceText: urogineco?.report_guidance_text ?? null,
-            }}
-            credentials={{
-              professionalName: credentials.professionalName,
-              crefitoLine: formatCrefitoLine(credentials.crefito),
-            }}
-          />
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {settings?.clinical_chance_indicator_enabled !== false && (
-          <Card className="lg:col-span-1">
+      <PatientDetailTabs
+        key={highlightRevenue ? "financeiro-lancar" : "ficha"}
+        defaultTab={defaultTab}
+        dados={
+          <Card>
             <CardHeader>
-              <CardTitle className="text-base">Chances × adesão</CardTitle>
+              <CardTitle className="text-base">
+                Editar dados do paciente
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <p className="text-2xl font-bold">{adherence}%</p>
-              <p className="text-muted-foreground">{chance.zoneLabel}</p>
-              <p className="text-xs text-muted-foreground">
-                {done} de {planned || "—"} sessões previstas
-              </p>
-              <p>
-                Literatura cura/melhora:{" "}
-                <strong>{chance.literatureRange}</strong>
-              </p>
-              <p className="text-xs text-muted-foreground">{chance.message}</p>
-              <p className="text-xs text-muted-foreground">{chance.disclaimer}</p>
+            <CardContent>
+              <PatientForm
+                patient={patient}
+                complaintOptions={complaintOptions}
+              />
             </CardContent>
           </Card>
-        )}
+        }
+        financeiro={
+          <>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {[
+                ["Faturamento", revenueTotals.gross],
+                ["Clínica", revenueTotals.clinic],
+                ["Você", revenueTotals.professional],
+                ["Cartão", revenueTotals.card],
+              ].map(([label, value]) => (
+                <Card key={label as string}>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">
+                      {label as string}
+                    </p>
+                    <p className="text-lg font-bold">
+                      {formatBRL(value as number)}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Evolução da escala</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <EvolutionChart data={chartData} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <PatientRevenuePanel
-        patientId={patient.id}
-        patientName={patient.full_name}
-        treatments={treatmentOptions}
-        installments={installments}
-        sessions={sessionOptions}
-        settings={settings}
-        defaultTreatmentId={defaultTreatmentId}
-        defaultSessionId={defaultSessionId}
-        highlight={highlightRevenue}
-        professional={credentials}
-        revenues={(revenues ?? []).map((r) => ({
-          id: r.id,
-          treatment_id: r.treatment_id,
-          installment_id: r.installment_id,
-          session_id: r.session_id,
-          revenue_date: r.revenue_date,
-          settled_at: r.settled_at || r.revenue_date,
-          description: r.description,
-          gross_amount: Number(r.gross_amount),
-          payment_method: r.payment_method as PaymentMethod,
-          clinic_percent: Number(r.clinic_percent),
-          card_fee_percent: Number(r.card_fee_percent),
-          clinic_base_mode: r.clinic_base_mode as ClinicBaseMode,
-          clinic_shares_card_fee: Boolean(r.clinic_shares_card_fee),
-          card_fee_amount: Number(r.card_fee_amount),
-          clinic_net_amount: Number(r.clinic_net_amount),
-          professional_net_amount: Number(r.professional_net_amount),
-        }))}
-      />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Nova sessão</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SessionForm
+            <PatientRevenuePanel
               patientId={patient.id}
-              treatments={treatments ?? []}
-              devices={devices ?? []}
-              complaintOptions={complaintOptions}
-              defaultComplaint={patient.complaint_focus}
+              patientName={patient.full_name}
+              treatments={treatmentOptions}
+              installments={installments}
+              sessions={sessionOptions}
+              settings={settings}
+              defaultTreatmentId={defaultTreatmentId}
+              defaultSessionId={defaultSessionId}
+              highlight={highlightRevenue}
+              professional={credentials}
+              revenues={(revenues ?? []).map((r) => ({
+                id: r.id,
+                treatment_id: r.treatment_id,
+                installment_id: r.installment_id,
+                session_id: r.session_id,
+                revenue_date: r.revenue_date,
+                settled_at: r.settled_at || r.revenue_date,
+                description: r.description,
+                gross_amount: Number(r.gross_amount),
+                payment_method: r.payment_method as PaymentMethod,
+                clinic_percent: Number(r.clinic_percent),
+                card_fee_percent: Number(r.card_fee_percent),
+                clinic_base_mode: r.clinic_base_mode as ClinicBaseMode,
+                clinic_shares_card_fee: Boolean(r.clinic_shares_card_fee),
+                card_fee_amount: Number(r.card_fee_amount),
+                clinic_net_amount: Number(r.clinic_net_amount),
+                professional_net_amount: Number(r.professional_net_amount),
+              }))}
             />
-          </CardContent>
-        </Card>
+          </>
+        }
+        avaliacao={
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Avaliação uroginecológica
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <UroginecoAssessmentForm
+                patientId={patient.id}
+                patientName={patient.full_name}
+                patientAge={patient.age_years}
+                patientSex={patient.sex}
+                complaintFocus={patient.complaint_focus}
+                patientNotes={patient.notes}
+                assessmentDate={urogineco?.assessment_date ?? null}
+                initialAnamnese={urogineco?.anamnese}
+                initialExam={urogineco?.physical_exam}
+                initialReport={{
+                  openingText: urogineco?.report_opening_text ?? null,
+                  anamneseText: urogineco?.report_anamnese_text ?? null,
+                  examText: urogineco?.report_exam_text ?? null,
+                  proposalText: urogineco?.report_proposal_text ?? null,
+                  guidanceText: urogineco?.report_guidance_text ?? null,
+                }}
+                credentials={{
+                  professionalName: credentials.professionalName,
+                  crefitoLine: formatCrefitoLine(credentials.crefito),
+                }}
+              />
+            </CardContent>
+          </Card>
+        }
+        tratamento={
+          <>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              {settings?.clinical_chance_indicator_enabled !== false && (
+                <Card className="lg:col-span-1">
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      Chances × adesão
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <p className="text-2xl font-bold">{adherence}%</p>
+                    <p className="text-muted-foreground">{chance.zoneLabel}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {done} de {planned || "—"} sessões previstas
+                    </p>
+                    <p>
+                      Literatura cura/melhora:{" "}
+                      <strong>{chance.literatureRange}</strong>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {chance.message}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {chance.disclaimer}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Histórico de sessões</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {(sessions ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sem sessões.</p>
-            ) : (
-              [...(sessions ?? [])].reverse().map((s) => {
-                const deviceNames =
-                  (s.session_devices as { device_catalog: { name: string } }[])
-                    ?.map((d) => d.device_catalog?.name)
-                    .filter(Boolean) ?? []
-                const treatment = treatments?.find(
-                  (t) => t.id === s.treatment_id,
-                )
-                const treatmentName = treatment?.protocol_name
-                const sessionPaid = paidSessionIds.has(s.id as string)
-                const accessLabel =
-                  {
-                    sonda_vaginal: "Sonda vaginal",
-                    sonda_anal: "Sonda anal",
-                    eletrodo_superficie: "Eletrodo de superfície",
-                    outro: "Outro",
-                    nao_aplicavel: "Não aplicável",
-                  }[s.access_route as string] ?? s.access_route
-                const rows: { label: string; value: string }[] = []
-                if (treatmentName) {
-                  rows.push({ label: "Tratamento", value: treatmentName })
-                }
-                if (s.daily_complaint) {
-                  rows.push({
-                    label: "Queixa / foco",
-                    value: complaintLabel(s.daily_complaint) || s.daily_complaint,
-                  })
-                }
-                if (s.procedures_done) {
-                  rows.push({
-                    label: "Condutas",
-                    value: s.procedures_done,
-                  })
-                }
-                if (s.access_route && s.access_route !== "nao_aplicavel") {
-                  rows.push({ label: "Via / acessório", value: accessLabel })
-                }
-                if (s.device_notes) {
-                  rows.push({
-                    label: "Obs. aparelho",
-                    value: s.device_notes,
-                  })
-                }
-                if (s.patient_response) {
-                  rows.push({
-                    label: "Resposta / observação",
-                    value: s.patient_response,
-                  })
-                }
-                if (s.next_step) {
-                  rows.push({
-                    label: "Próximo passo",
-                    value: s.next_step,
-                  })
-                }
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="text-base">Evolução da escala</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <EvolutionChart data={chartData} />
+                </CardContent>
+              </Card>
+            </div>
 
-                return (
-                  <div
-                    key={s.id}
-                    className="rounded-lg border border-border px-3 py-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">
-                        {formatData(s.session_date)}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-1">
-                        {sessionPaid ? (
-                          <Badge variant="secondary">Paga</Badge>
-                        ) : treatment?.kind === "avulso" ? (
-                          <Badge variant="outline">A cobrar</Badge>
-                        ) : null}
-                        {s.evolution_scale != null && (
-                          <Badge>Escala {s.evolution_scale}</Badge>
-                        )}
-                      </div>
-                    </div>
-                    {rows.length > 0 ? (
-                      <dl className="mt-2 space-y-1.5 text-sm">
-                        {rows.map((row) => (
-                          <div key={row.label}>
-                            <dt className="text-xs font-medium text-muted-foreground">
-                              {row.label}
-                            </dt>
-                            <dd className="whitespace-pre-wrap text-foreground">
-                              {row.value}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    ) : deviceNames.length === 0 ? (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Sem detalhes clínicos registrados.
-                      </p>
-                    ) : null}
-                    {deviceNames.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          Aparelhos
-                        </p>
-                        <div className="flex flex-wrap gap-1">
-                          {deviceNames.map((n) => (
-                            <Badge key={n} variant="outline">
-                              {n}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {!sessionPaid && treatment?.kind === "avulso" && (
-                      <div className="mt-3">
-                        <Link
-                          href={`/pacientes/${patient.id}?lancar=receita&tratamento=${treatment.id}&sessao=${s.id}`}
-                          className={cn(
-                            buttonVariants({ size: "sm", variant: "outline" }),
-                          )}
-                        >
-                          Registrar pagamento da sessão
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                )
-              })
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Tratamentos</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {(treatments ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhum tratamento.{" "}
-              <Link
-                href={`/tratamentos?paciente=${patient.id}`}
-                className="text-primary underline"
-              >
-                Criar em Tratamentos
-              </Link>
-            </p>
-          ) : (
-            treatments?.map((t) => {
-              const report = reports?.find((r) => r.treatment_id === t.id)
-              return (
-                <div
-                  key={t.id}
-                  className="rounded-lg border border-border px-3 py-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{t.protocol_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t.kind === "avulso" ? "Avulso · por sessão" : "Pacote"} ·{" "}
-                        {t.status}
-                        {t.kind === "pacote" &&
-                        Number(t.total_amount) > 0
-                          ? ` · ${formatBRL(Number(t.total_amount))}`
-                          : ""}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {t.kind === "avulso" ? (
-                        <Link
-                          href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
-                          className={cn(
-                            buttonVariants({ size: "sm", variant: "outline" }),
-                          )}
-                        >
-                          Pagar sessão
-                        </Link>
-                      ) : (
-                        <Link
-                          href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
-                          className={cn(
-                            buttonVariants({ size: "sm", variant: "outline" }),
-                          )}
-                        >
-                          Lançar parcela
-                        </Link>
-                      )}
-                      {report && (
-                        <Link
-                          href={`/relatorios/clinico/${t.id}`}
-                          className={cn(
-                            buttonVariants({ size: "sm", variant: "outline" }),
-                          )}
-                        >
-                          Relatório clínico
-                        </Link>
-                      )}
-                      <DeleteTreatmentButton
-                        treatmentId={t.id}
-                        protocolName={t.protocol_name}
-                      />
-                    </div>
-                  </div>
-                  <TreatmentPlannedSessionsForm
-                    treatmentId={t.id}
-                    plannedSessions={Number(t.planned_sessions)}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Nova sessão</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <SessionForm
+                    patientId={patient.id}
+                    treatments={treatments ?? []}
+                    devices={activeDevices}
+                    complaintOptions={complaintOptions}
+                    defaultComplaint={patient.complaint_focus}
                   />
-                </div>
-              )
-            })
-          )}
-        </CardContent>
-      </Card>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Histórico de sessões
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <SessionHistoryPanel
+                    patientId={patient.id}
+                    sessions={historySessions}
+                    treatments={(treatments ?? []).map((t) => ({
+                      id: t.id as string,
+                      protocol_name: t.protocol_name as string,
+                      status: t.status as string,
+                      kind: t.kind as string | undefined,
+                    }))}
+                    devices={deviceOptionsForEdit}
+                    complaintOptions={complaintOptions}
+                    defaultComplaint={patient.complaint_focus}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Tratamentos</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {(treatments ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum tratamento.{" "}
+                    <Link
+                      href={`/tratamentos?paciente=${patient.id}`}
+                      className="text-primary underline"
+                    >
+                      Criar em Tratamentos
+                    </Link>
+                  </p>
+                ) : (
+                  treatments?.map((t) => {
+                    const report = reports?.find(
+                      (r) => r.treatment_id === t.id,
+                    )
+                    return (
+                      <div
+                        key={t.id}
+                        className="rounded-lg border border-border px-3 py-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-medium">{t.protocol_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {t.kind === "avulso"
+                                ? "Avulso · por sessão"
+                                : "Pacote"}{" "}
+                              · {t.status}
+                              {t.kind === "pacote" &&
+                              Number(t.total_amount) > 0
+                                ? ` · ${formatBRL(Number(t.total_amount))}`
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {t.kind === "avulso" ? (
+                              <Link
+                                href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
+                                className={cn(
+                                  buttonVariants({
+                                    size: "sm",
+                                    variant: "outline",
+                                  }),
+                                )}
+                              >
+                                Pagar sessão
+                              </Link>
+                            ) : (
+                              <Link
+                                href={`/pacientes/${patient.id}?lancar=receita&tratamento=${t.id}`}
+                                className={cn(
+                                  buttonVariants({
+                                    size: "sm",
+                                    variant: "outline",
+                                  }),
+                                )}
+                              >
+                                Lançar parcela
+                              </Link>
+                            )}
+                            {report && (
+                              <Link
+                                href={`/relatorios/clinico/${t.id}`}
+                                className={cn(
+                                  buttonVariants({
+                                    size: "sm",
+                                    variant: "outline",
+                                  }),
+                                )}
+                              >
+                                Relatório clínico
+                              </Link>
+                            )}
+                            <DeleteTreatmentButton
+                              treatmentId={t.id}
+                              protocolName={t.protocol_name}
+                            />
+                          </div>
+                        </div>
+                        <TreatmentPlannedSessionsForm
+                          treatmentId={t.id}
+                          plannedSessions={Number(t.planned_sessions)}
+                        />
+                      </div>
+                    )
+                  })
+                )}
+              </CardContent>
+            </Card>
+          </>
+        }
+        relatorios={
+          <PatientReportsPanel
+            clinicalReports={clinicalReportItems}
+            physioReport={physioReport}
+            receipts={receiptItems}
+          />
+        }
+      />
     </div>
   )
 }
