@@ -20,6 +20,7 @@ export default function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const next = searchParams.get("next") || "/dashboard"
+  const supabaseAviso = searchParams.get("aviso") === "supabase"
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -73,6 +74,13 @@ export default function LoginForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            {supabaseAviso && (
+              <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+                O banco Supabase não respondeu a tempo (projeto pode estar
+                pausado). Restaure o projeto no painel do Supabase e tente
+                entrar de novo.
+              </p>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
               <Input
