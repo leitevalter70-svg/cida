@@ -37,13 +37,15 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const isAuthRoute =
     pathname.startsWith("/login") || pathname.startsWith("/cadastro")
+  const isKeepAlive = pathname === "/api/keep-alive"
   const isPublicAsset =
     pathname.startsWith("/_next") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/apple") ||
     pathname === "/favicon.ico"
 
-  if (isPublicAsset) {
+  // Cron keep-alive must not require login (auth is CRON_SECRET in the route).
+  if (isPublicAsset || isKeepAlive) {
     return supabaseResponse
   }
 
