@@ -1,6 +1,7 @@
 /** Schema tipado da avaliação uroginecológica (persistido em JSONB no Supabase). */
 
 import { complaintLabel } from "@/lib/clinical/complaints"
+import { formatData } from "@/lib/format"
 
 export type MedicationRow = {
   name: string
@@ -480,6 +481,7 @@ export function buildPhysioReportDraft(
   patient: PhysioReportPatientInput,
   anamnese: UroginecoAnamnese,
   exam: UroginecoPhysicalExam,
+  reportPackage: PhysioReportPackage | null = null,
 ): PhysioReportDraft {
   const agePart =
     patient.age_years != null ? `${patient.age_years} anos` : "idade não informada"
@@ -609,15 +611,151 @@ export function buildPhysioReportDraft(
   if (exam.care_mode === "grupo") proposalBits.push("Atendimento em grupo")
   if (exam.objective_plan?.trim()) proposalBits.push(exam.objective_plan.trim())
 
-  const proposalText =
+  const baseProposal =
     proposalBits.length > 0
       ? proposalBits.join(". ") + (proposalBits.length === 1 ? "" : ".")
       : "Eletroestimulação superficial e exercícios de Kegel que visam melhorar a consciência perineal e fortalecer os músculos do assoalho pélvico."
+  const proposalText = applyPackageEvolution(baseProposal, reportPackage, [])
 
   const guidanceText =
     "Ajudar a paciente na compreensão dos exercícios, no tempo correto dos exercícios respiratórios. Durante o tratamento a paciente será reavaliada para comparar sua evolução. Será lembrada da importância da realização dos exercícios propostos em casa, pois são a base do tratamento."
 
   return { opening, anamneseText, examText, proposalText, guidanceText }
+}
+
+export type PhysioReportPackageSession = {
+  session_date: string
+  evolution_scale: number | null
+  device_names: string[]
+}
+
+export type PhysioReportPackage = {
+  id: string
+  label: string
+  protocolName: string
+  plannedSessions: number
+  sessions: PhysioReportPackageSession[]
+}
+
+type PackageTreatmentInput = {
+  id: string
+  protocol_name: string
+  planned_sessions: number
+  status: string
+  started_at: string
+  created_at: string
+}
+
+type PackageSessionInput = PhysioReportPackageSession & {
+  treatment_id: string | null
+}
+
+/**
+ * Agrupa as sessões por pacote. Sessões sem pacote vinculado vão para o
+ * pacote mais recente iniciado até a data da sessão.
+ * Retorna do pacote mais recente para o mais antigo.
+ */
+export function buildPhysioReportPackages(
+  treatments: PackageTreatmentInput[],
+  sessions: PackageSessionInput[],
+): PhysioReportPackage[] {
+  const ordered = [...treatments].sort((a, b) =>
+    b.started_at === a.started_at
+      ? b.created_at.localeCompare(a.created_at)
+      : b.started_at.localeCompare(a.started_at),
+  )
+  const byDate = [...sessions].sort((a, b) =>
+    a.session_date.localeCompare(b.session_date),
+  )
+
+  return ordered.map((t) => ({
+    id: t.id,
+    label: `${t.protocol_name} · iniciado ${formatData(t.started_at)}${
+      t.status === "ativo" ? " · ativo" : ""
+    }`,
+    protocolName: t.protocol_name,
+    plannedSessions: Number(t.planned_sessions),
+    sessions: byDate
+      .filter((s) => {
+        if (s.treatment_id) return s.treatment_id === t.id
+        const owner = ordered.find((o) => o.started_at <= s.session_date)
+        return owner?.id === t.id
+      })
+      .map(({ session_date, evolution_scale, device_names }) => ({
+        session_date,
+        evolution_scale,
+        device_names,
+      })),
+  }))
+}
+
+/** Pacote padrão do relatório: o ativo ou, sem ativo, o mais recente. */
+export function defaultPhysioReportPackageId(
+  treatments: { id: string; status: string }[],
+  packages: PhysioReportPackage[],
+): string | null {
+  return (
+    treatments.find((t) => t.status === "ativo")?.id ?? packages[0]?.id ?? null
+  )
+}
+
+export function describePackageEvolution(
+  pkg: PhysioReportPackage | null,
+): string | null {
+  if (!pkg || pkg.sessions.length === 0) return null
+  const done = pkg.sessions.length
+  const first = pkg.sessions[0].session_date
+  const last = pkg.sessions[done - 1].session_date
+  const scales = pkg.sessions
+    .map((s) => s.evolution_scale)
+    .filter((s): s is number => s != null)
+
+  const devices = new Map<string, number>()
+  pkg.sessions.forEach((s) =>
+    s.device_names.forEach((n) => devices.set(n, (devices.get(n) || 0) + 1)),
+  )
+
+  const period =
+    first === last
+      ? `em ${formatData(first)}`
+      : `entre ${formatData(first)} e ${formatData(last)}`
+  const parts = [
+    `No tratamento (${pkg.protocolName}), ${period}, foram realizadas ${done} de ${pkg.plannedSessions} sessões previstas`,
+  ]
+  if (scales.length >= 2) {
+    parts.push(
+      `com escala de evolução passando de ${scales[0]} para ${scales[scales.length - 1]}`,
+    )
+  }
+  if (devices.size) {
+    parts.push(
+      `utilizando ${joinList(
+        Array.from(devices.entries()).map(
+          ([name, count]) => `${name} (${count} ${count === 1 ? "sessão" : "sessões"})`,
+        ),
+      )}`,
+    )
+  }
+  return parts.join(", ") + "."
+}
+
+/**
+ * Troca o parágrafo de evolução no texto da proposta pelo do pacote escolhido,
+ * removendo o de qualquer outro pacote conhecido.
+ */
+export function applyPackageEvolution(
+  text: string,
+  pkg: PhysioReportPackage | null,
+  allPackages: PhysioReportPackage[],
+): string {
+  let base = text
+  for (const p of allPackages) {
+    const evo = describePackageEvolution(p)
+    if (evo) base = base.replace(evo, "")
+  }
+  base = base.replace(/\s{2,}/g, " ").trim()
+  const evolution = describePackageEvolution(pkg)
+  return [base, evolution].filter(Boolean).join(" ")
 }
 
 export function physioReportFileBaseName(patientName: string) {

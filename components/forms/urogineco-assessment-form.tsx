@@ -21,6 +21,7 @@ import {
   LEAK_ACTIVITY_OPTIONS,
   MEDICAL_DIAGNOSIS_OPTIONS,
   URINARY_SYMPTOM_OPTIONS,
+  applyPackageEvolution,
   buildPhysioReportDraft,
   emptyAnamnese,
   emptyPhysicalExam,
@@ -28,6 +29,7 @@ import {
   mergeAnamnese,
   mergePhysicalExam,
   type MedicationRow,
+  type PhysioReportPackage,
   type UroginecoAnamnese,
   type UroginecoPhysicalExam,
 } from "@/lib/clinical/urogineco"
@@ -123,6 +125,8 @@ export function UroginecoAssessmentForm({
   initialAnamnese,
   initialExam,
   initialReport,
+  reportPackages,
+  defaultReportPackageId,
   credentials,
 }: {
   patientId: string
@@ -141,6 +145,8 @@ export function UroginecoAssessmentForm({
     proposalText: string | null
     guidanceText: string | null
   }
+  reportPackages: PhysioReportPackage[]
+  defaultReportPackageId: string | null
   credentials: { professionalName: string; crefitoLine: string }
 }) {
   const router = useRouter()
@@ -192,9 +198,25 @@ export function UroginecoAssessmentForm({
   const [reportExam, setReportExam] = useState(
     initialReport.examText || draft.examText,
   )
-  const [reportProposal, setReportProposal] = useState(
-    initialReport.proposalText || draft.proposalText,
+  const [packageId, setPackageId] = useState(defaultReportPackageId)
+  const [reportProposal, setReportProposal] = useState(() =>
+    applyPackageEvolution(
+      initialReport.proposalText || draft.proposalText,
+      reportPackages.find((p) => p.id === defaultReportPackageId) ?? null,
+      reportPackages,
+    ),
   )
+
+  function changePackage(id: string) {
+    setPackageId(id)
+    setReportProposal((current) =>
+      applyPackageEvolution(
+        current,
+        reportPackages.find((p) => p.id === id) ?? null,
+        reportPackages,
+      ),
+    )
+  }
   const [reportGuidance, setReportGuidance] = useState(
     initialReport.guidanceText || draft.guidanceText,
   )
@@ -256,7 +278,7 @@ export function UroginecoAssessmentForm({
     setOkMsg(null)
     startTransition(async () => {
       try {
-        const d = await regenerateUroginecoReportDraft(patientId)
+        const d = await regenerateUroginecoReportDraft(patientId, packageId)
         setReportOpening(d.opening)
         setReportAnamnese(d.anamneseText)
         setReportExam(d.examText)
@@ -1235,6 +1257,27 @@ export function UroginecoAssessmentForm({
         </TabsContent>
 
         <TabsContent value="relatorio" className="mt-4 space-y-4">
+          {reportPackages.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Pacote do relatório</Label>
+              <select
+                className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+                value={packageId ?? ""}
+                onChange={(e) => changePackage(e.target.value)}
+              >
+                {reportPackages.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label} · {p.sessions.length}{" "}
+                    {p.sessions.length === 1 ? "sessão" : "sessões"}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                A evolução das sessões deste pacote entra no fim da proposta de
+                tratamento.
+              </p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Abertura (identificação e queixa)</Label>
             <Textarea

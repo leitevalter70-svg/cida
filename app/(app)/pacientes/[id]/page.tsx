@@ -27,6 +27,10 @@ import {
   complaintLabel,
   resolveComplaintOptions,
 } from "@/lib/clinical/complaints"
+import {
+  buildPhysioReportPackages,
+  defaultPhysioReportPackageId,
+} from "@/lib/clinical/urogineco"
 import { paymentMethodLabel } from "@/lib/finance/split"
 import { resolveCredentials, formatCrefitoLine } from "@/lib/professional"
 import { cn } from "@/lib/utils"
@@ -219,6 +223,30 @@ export default async function PacienteDetailPage({
       paid: paidSessionIds.has(s.id as string),
     }
   })
+
+  const reportPackages = buildPhysioReportPackages(
+    (treatments ?? []).map((t) => ({
+      id: t.id as string,
+      protocol_name: t.protocol_name as string,
+      planned_sessions: Number(t.planned_sessions),
+      status: t.status as string,
+      started_at: t.started_at as string,
+      created_at: t.created_at as string,
+    })),
+    historySessions.map((s) => ({
+      session_date: s.session_date,
+      treatment_id: s.treatment_id,
+      evolution_scale: s.evolution_scale,
+      device_names: s.device_names,
+    })),
+  )
+  const defaultReportPackageId = defaultPhysioReportPackageId(
+    (treatments ?? []).map((t) => ({
+      id: t.id as string,
+      status: t.status as string,
+    })),
+    reportPackages,
+  )
 
   const credentials = resolveCredentials(reportDefaults)
   const defaultTab = highlightRevenue ? "financeiro" : "dados"
@@ -494,6 +522,8 @@ export default async function PacienteDetailPage({
                   proposalText: urogineco?.report_proposal_text ?? null,
                   guidanceText: urogineco?.report_guidance_text ?? null,
                 }}
+                reportPackages={reportPackages}
+                defaultReportPackageId={defaultReportPackageId}
                 credentials={{
                   professionalName: credentials.professionalName,
                   crefitoLine: formatCrefitoLine(credentials.crefito),

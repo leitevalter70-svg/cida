@@ -8,6 +8,8 @@ import { calculateSplit, isCardPayment } from "@/lib/finance/split"
 import { adherencePercent } from "@/lib/clinical/chance"
 import {
   buildPhysioReportDraft,
+  buildPhysioReportPackages,
+  defaultPhysioReportPackageId,
   isStaleOutroOpening,
   mergeAnamnese,
   mergePhysicalExam,
@@ -1465,7 +1467,10 @@ export async function upsertUroginecoReportTexts(
   revalidatePath(`/pacientes/${patientId}`)
 }
 
-export async function regenerateUroginecoReportDraft(patientId: string) {
+export async function regenerateUroginecoReportDraft(
+  patientId: string,
+  treatmentId?: string | null,
+) {
   const { supabase, userId } = await getUserId()
 
   const { data: patient, error: pErr } = await supabase
@@ -1483,6 +1488,55 @@ export async function regenerateUroginecoReportDraft(patientId: string) {
     .eq("user_id", userId)
     .maybeSingle()
 
+  const [{ data: treatments }, { data: sessions }] = await Promise.all([
+    supabase
+      .from("treatments")
+      .select("id, protocol_name, planned_sessions, status, started_at, created_at")
+      .eq("patient_id", patientId)
+      .eq("user_id", userId),
+    supabase
+      .from("sessions")
+      .select("session_date, evolution_scale, treatment_id, session_devices(device_catalog(name))")
+      .eq("patient_id", patientId)
+      .eq("user_id", userId),
+  ])
+
+  const packages = buildPhysioReportPackages(
+    (treatments ?? []).map((t) => ({
+      id: t.id as string,
+      protocol_name: t.protocol_name as string,
+      planned_sessions: Number(t.planned_sessions),
+      status: t.status as string,
+      started_at: t.started_at as string,
+      created_at: t.created_at as string,
+    })),
+    (sessions ?? []).map((s) => ({
+      session_date: s.session_date as string,
+      treatment_id: (s.treatment_id as string | null) ?? null,
+      evolution_scale:
+        s.evolution_scale == null ? null : Number(s.evolution_scale),
+      device_names: (
+        (s.session_devices as unknown as
+          | { device_catalog: { name: string } | null }[]
+          | null) ?? []
+      )
+        .map((d) => d.device_catalog?.name)
+        .filter((n): n is string => Boolean(n)),
+    })),
+  )
+  const chosenId =
+    (treatmentId && packages.some((p) => p.id === treatmentId)
+      ? treatmentId
+      : null) ??
+    defaultPhysioReportPackageId(
+      (treatments ?? []).map((t) => ({
+        id: t.id as string,
+        status: t.status as string,
+      })),
+      packages,
+    )
+  const chosenPackage = packages.find((p) => p.id === chosenId) ?? null
+
   const anamnese = mergeAnamnese(existing?.anamnese)
   const physical_exam = mergePhysicalExam(existing?.physical_exam)
   const draft = buildPhysioReportDraft(
@@ -1495,6 +1549,7 @@ export async function regenerateUroginecoReportDraft(patientId: string) {
     },
     anamnese,
     physical_exam,
+    chosenPackage,
   )
 
   const { error } = await supabase.from("urogineco_assessments").upsert(
