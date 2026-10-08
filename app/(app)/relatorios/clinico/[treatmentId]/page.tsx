@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
@@ -9,6 +10,11 @@ import {
   DownloadClinicalWordButton,
 } from "@/components/clinical-pdf"
 import { buildClinicalPdfData } from "@/lib/clinical/build-clinical-pdf-data"
+import {
+  limitClinicalSessions,
+  sessionsCountLabel,
+} from "@/lib/clinical/report-export"
+import { SessionCountPicker } from "@/components/session-count-picker"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { PhysioSymbol } from "@/components/physio-symbol"
@@ -35,10 +41,16 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default async function RelatorioClinicoPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ treatmentId: string }>
+  searchParams: Promise<{ sessoes?: string }>
 }) {
   const { treatmentId } = await params
+  const { sessoes } = await searchParams
+  const parsedLimit = sessoes && sessoes !== "todas" ? parseInt(sessoes, 10) : NaN
+  const sessionLimit =
+    Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null
 
   if (!isSupabaseConfigured()) {
     return (
@@ -150,7 +162,9 @@ export default async function RelatorioClinicoPage({
     credentials,
   })
 
-  const pdfSessions = pdfData.sessions
+  const exportData = limitClinicalSessions(pdfData, sessionLimit)
+  const pdfSessions = exportData.sessions
+  const firstSessionNumber = exportData.sessionsFirstNumber ?? 1
   const adherence = pdfData.adherence
   const sessionsDone = pdfData.sessionsDone
   const sessionsPlanned = pdfData.sessionsPlanned
@@ -281,16 +295,20 @@ export default async function RelatorioClinicoPage({
       </div>
 
       <Card className="border-border/80 shadow-none">
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-3">
           <CardTitle className="text-base">
             Sessões registradas{" "}
             {pdfSessions.length > 0 && (
               <span className="font-normal text-muted-foreground">
-                ({pdfSessions.length}{" "}
-                {pdfSessions.length === 1 ? "sessão" : "sessões"})
+                ({sessionsCountLabel(exportData)})
               </span>
             )}
           </CardTitle>
+          {pdfData.sessions.length > 0 && (
+            <Suspense fallback={null}>
+              <SessionCountPicker total={pdfData.sessions.length} />
+            </Suspense>
+          )}
         </CardHeader>
         <CardContent>
           {pdfSessions.length === 0 ? (
@@ -311,7 +329,7 @@ export default async function RelatorioClinicoPage({
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
                       <div className="flex items-center gap-2">
                         <span className="flex size-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                          {i + 1}
+                          {firstSessionNumber + i}
                         </span>
                         <span className="font-semibold text-foreground">
                           {s.date}
@@ -385,8 +403,8 @@ export default async function RelatorioClinicoPage({
             maintenance={report.maintenance_guidance}
           />
           <div className="flex flex-wrap gap-2">
-            <DownloadClinicalPdfButton data={pdfData} />
-            <DownloadClinicalWordButton data={pdfData} />
+            <DownloadClinicalPdfButton data={exportData} />
+            <DownloadClinicalWordButton data={exportData} />
           </div>
           <p className="text-xs text-muted-foreground">
             PDF e Word incluem identificação da profissional (

@@ -35,6 +35,33 @@ export type ClinicalPdfData = {
   professionalName: string
   crefitoLine: string
   sessions: ClinicalPdfSession[]
+  /** Total de sessões do pacote quando `sessions` traz só as últimas. */
+  sessionsTotal?: number
+  /** Número da primeira sessão listada dentro do pacote (começa em 1). */
+  sessionsFirstNumber?: number
+}
+
+/** Ex.: "12 sessões" ou "últimas 5 de 12 sessões". */
+export function sessionsCountLabel(data: ClinicalPdfData): string {
+  const shown = data.sessions.length
+  const total = data.sessionsTotal ?? shown
+  if (total > shown) return `últimas ${shown} de ${total} sessões`
+  return `${shown} ${shown === 1 ? "sessão" : "sessões"}`
+}
+
+/** Limita às últimas `limit` sessões, mantendo a numeração do pacote. */
+export function limitClinicalSessions(
+  data: ClinicalPdfData,
+  limit: number | null,
+): ClinicalPdfData {
+  const total = data.sessions.length
+  if (!limit || limit >= total) return data
+  return {
+    ...data,
+    sessions: data.sessions.slice(-limit),
+    sessionsTotal: total,
+    sessionsFirstNumber: total - limit + 1,
+  }
 }
 
 /** Compact one-line summary for a session (web preview). */

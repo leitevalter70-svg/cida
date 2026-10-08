@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button"
 import { PHYSIO_SYMBOL_PATHS } from "@/components/physio-symbol"
 import {
   clinicalReportFileBaseName,
+  sessionsCountLabel,
   type ClinicalPdfData,
   type ClinicalPdfSession,
 } from "@/lib/clinical/report-export"
@@ -487,12 +488,15 @@ function ClinicalDocument({ data }: { data: ClinicalPdfData }) {
             <Text style={styles.sessionsHeading}>
               Histórico das sessões{" "}
               <Text style={styles.sessionsCount}>
-                ({data.sessions.length}{" "}
-                {data.sessions.length === 1 ? "sessão" : "sessões"})
+                ({sessionsCountLabel(data)})
               </Text>
             </Text>
             {data.sessions.map((s, i) => (
-              <SessionBlock key={i} index={i} session={s} />
+              <SessionBlock
+                key={i}
+                index={(data.sessionsFirstNumber ?? 1) - 1 + i}
+                session={s}
+              />
             ))}
           </View>
         )}
@@ -772,7 +776,7 @@ function buildWordDocument(data: ClinicalPdfData) {
             color: "2A6F77",
           }),
           new TextRun({
-            text: `  (${data.sessions.length} ${data.sessions.length === 1 ? "sessão" : "sessões"})`,
+            text: `  (${sessionsCountLabel(data)})`,
             size: 18,
             color: "5A6B70",
           }),
@@ -796,7 +800,7 @@ function buildWordDocument(data: ClinicalPdfData) {
         new Paragraph({
           children: [
             new TextRun({
-              text: `Sessão ${i + 1}  ·  ${s.date}`,
+              text: `Sessão ${(data.sessionsFirstNumber ?? 1) + i}  ·  ${s.date}`,
               bold: true,
               size: 20,
               color: "2A6F77",
